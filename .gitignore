@@ -131,3 +131,6 @@ dmypy.json
 # ignore file endings
 **/.DS_STORE
 **/**.csv
+
+# ignore directory
+data/
