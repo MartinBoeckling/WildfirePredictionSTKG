@@ -9,7 +9,7 @@ The R coding is based on the R version 4.0.3.
 The dependencies of the project can be found in the [renv.lock](wildfirearea/renv.lock) file. The dependencies can directly be installed in R by using the [renv](https://cran.r-project.org/web/packages/renv/index.html) package. To install all necessary packages simply use the command renv::restore(lockfile='*lockfile path*') within your RStudio environment.
 ### Python
 The python coding is based on the python version 3.9.
-The dependencies can be found in the requirements.txt file. To install the packages used in this project please run pip install -r requirements.txt in your virtual environement.
+The dependencies can be found in the [requirements.txt](wildfirearea/requirements.txt) file. To install the packages used in this project please run pip install -r requirements.txt in your virtual environement.
 ## Setup for github repo
 
 ## Data
