@@ -1,0 +1,176 @@
+{
+  "R": {
+    "Version": "4.0.3",
+    "Repositories": [
+      {
+        "Name": "CRAN",
+        "URL": "https://cran.rstudio.com"
+      }
+    ]
+  },
+  "Packages": {
+    "DBI": {
+      "Package": "DBI",
+      "Version": "1.1.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "030aaec5bc6553f35347cbb1e70b1a17",
+      "Requirements": []
+    },
+    "KernSmooth": {
+      "Package": "KernSmooth",
+      "Version": "2.23-17",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "bbff70c8c0357b5b88238c83f680fcd3",
+      "Requirements": []
+    },
+    "MASS": {
+      "Package": "MASS",
+      "Version": "7.3-53",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "d1bc1c8e9c0ace57ec9ffea01021d45f",
+      "Requirements": []
+    },
+    "Rcpp": {
+      "Package": "Rcpp",
+      "Version": "1.0.7",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "dab19adae4440ae55aa8a9d238b246bb",
+      "Requirements": []
+    },
+    "class": {
+      "Package": "class",
+      "Version": "7.3-17",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "9267f5dab59a4ef44229858a142bded1",
+      "Requirements": [
+        "MASS"
+      ]
+    },
+    "classInt": {
+      "Package": "classInt",
+      "Version": "0.4-3",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "17bdfa3c51df4a6c82484d13b11fb380",
+      "Requirements": [
+        "KernSmooth",
+        "class",
+        "e1071"
+      ]
+    },
+    "cpp11": {
+      "Package": "cpp11",
+      "Version": "0.3.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "e02edab2bc389c5e4b12949b13df44f2",
+      "Requirements": []
+    },
+    "e1071": {
+      "Package": "e1071",
+      "Version": "1.7-4",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "7e9462e3e3e565f51fbec181dfcab890",
+      "Requirements": [
+        "class"
+      ]
+    },
+    "lattice": {
+      "Package": "lattice",
+      "Version": "0.20-41",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "fbd9285028b0263d76d18c95ae51a53d",
+      "Requirements": []
+    },
+    "magrittr": {
+      "Package": "magrittr",
+      "Version": "2.0.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "41287f1ac7d28a92f0a286ed507928d3",
+      "Requirements": []
+    },
+    "raster": {
+      "Package": "raster",
+      "Version": "3.4-5",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "a3ded548110163cf499d63c3932dd499",
+      "Requirements": [
+        "Rcpp",
+        "sp"
+      ]
+    },
+    "renv": {
+      "Package": "renv",
+      "Version": "0.15.2",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "206c4ef8b7ad6fb1060d69aa7b9dfe69",
+      "Requirements": []
+    },
+    "s2": {
+      "Package": "s2",
+      "Version": "1.0.7",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "cedf9ef196a446ee8080c14267e69410",
+      "Requirements": [
+        "Rcpp",
+        "wk"
+      ]
+    },
+    "sf": {
+      "Package": "sf",
+      "Version": "1.0-2",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "464dca3e4f0bb13cf202630bfed2753a",
+      "Requirements": [
+        "DBI",
+        "Rcpp",
+        "classInt",
+        "magrittr",
+        "s2",
+        "units"
+      ]
+    },
+    "sp": {
+      "Package": "sp",
+      "Version": "1.4-5",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "dfd843ee98246cf932823acf613b05dd",
+      "Requirements": [
+        "lattice"
+      ]
+    },
+    "units": {
+      "Package": "units",
+      "Version": "0.6-7",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "4a3df844d6d35ca2ba2b7ba95446b955",
+      "Requirements": [
+        "Rcpp"
+      ]
+    },
+    "wk": {
+      "Package": "wk",
+      "Version": "0.5.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "60e191a866c5649a8f58a458f5e60edf",
+      "Requirements": [
+        "cpp11"
+      ]
+    }
+  }
+}
