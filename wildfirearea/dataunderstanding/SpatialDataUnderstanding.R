@@ -10,15 +10,24 @@ following data categories are used within this script:
 '
 #-----------------------------import packages-----------------------------------
 library(ggplot2)
+library(dichromat)
 library(tidyverse)
 library(sf)
 library(sp)
 library(raster)
+#----------------------------Script configuration-------------------------------
+
+colorPalette <- grey.colors(n=20)
 #-------------------------------Elevation---------------------------------------
 # read elevation dataset
-rasterElevation <- raster('~/GitHub/wildfirearea/Data/Elevation/90 m DEM of California, USA/commondata/data0/ca_dem/w001001.adf')
+rasterElevation <- raster::raster('~/GitHub/wildfirearea/Data/Elevation/90 m DEM of California, USA/commondata/data0/ca_dem/w001001.adf')
+# convert rasterElevation type of raster to dataframe
+# convert to SpatialPoints Dataframe
+rasterElevationPoint <- rasterToPoints(rasterElevation, spatial = TRUE)
+# convert Spatial Points dataframe to solely dataframe
+rasterElevationDf <- data.frame(rasterElevationPoint)
 
 # visualize elevation raster
-ggplot() +
-  geom_raster()
+plot(rasterElevation, col=colorPalette)
 #-------------------------------Weather-----------------------------------------
+weather <- read_csv('~/GitHub/wildfirearea/Data/Weather/weather.csv')

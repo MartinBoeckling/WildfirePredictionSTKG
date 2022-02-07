@@ -12,7 +12,7 @@ library(raster)
 prj_dd <- 'EPSG:3785'
 #--------------------Create base map----------------------------
 # load California map from ggplot
-california_boundary <- st_read('~/Document/Github/wildfirearea/data/spatial data/california boundary/CA_State_TIGER2016.shp')
+california_boundary <- st_read('~/Github/wildfirearea/Data/California Boundary/CA_State_TIGER2016.shp')
 california_spol <- as_Spatial(california_boundary)
 
 # create hexagonal grid
