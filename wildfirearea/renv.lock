@@ -17,6 +17,22 @@
       "Hash": "030aaec5bc6553f35347cbb1e70b1a17",
       "Requirements": []
     },
+    "DataExplorer": {
+      "Package": "DataExplorer",
+      "Version": "0.8.2",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "7ac7d2d1133bead1a5102819397e414d",
+      "Requirements": [
+        "data.table",
+        "ggplot2",
+        "gridExtra",
+        "networkD3",
+        "reshape2",
+        "rmarkdown",
+        "scales"
+      ]
+    },
     "KernSmooth": {
       "Package": "KernSmooth",
       "Version": "2.23-17",
@@ -511,6 +527,16 @@
         "vctrs"
       ]
     },
+    "gridExtra": {
+      "Package": "gridExtra",
+      "Version": "2.3",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "7d7f283939f563670a697165b2cf5560",
+      "Requirements": [
+        "gtable"
+      ]
+    },
     "gtable": {
       "Package": "gtable",
       "Version": "0.3.0",
@@ -573,6 +599,18 @@
         "rlang"
       ]
     },
+    "htmlwidgets": {
+      "Package": "htmlwidgets",
+      "Version": "1.5.4",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "76147821cd3fcd8c4b04e1ef0498e7fb",
+      "Requirements": [
+        "htmltools",
+        "jsonlite",
+        "yaml"
+      ]
+    },
     "httr": {
       "Package": "httr",
       "Version": "1.4.2",
@@ -596,6 +634,18 @@
       "Requirements": [
         "openssl",
         "uuid"
+      ]
+    },
+    "igraph": {
+      "Package": "igraph",
+      "Version": "1.2.11",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "1d10cd31c2979f9c819ffe4d16b9dc2b",
+      "Requirements": [
+        "Matrix",
+        "magrittr",
+        "pkgconfig"
       ]
     },
     "isoband": {
@@ -742,6 +792,18 @@
         "colorspace"
       ]
     },
+    "networkD3": {
+      "Package": "networkD3",
+      "Version": "0.4",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "38310ec4ddb1398359abdd603c151067",
+      "Requirements": [
+        "htmlwidgets",
+        "igraph",
+        "magrittr"
+      ]
+    },
     "nlme": {
       "Package": "nlme",
       "Version": "3.1-149",
@@ -787,6 +849,16 @@
       "Repository": "CRAN",
       "Hash": "01f28d4278f15c76cddbea05899c5d6f",
       "Requirements": []
+    },
+    "plyr": {
+      "Package": "plyr",
+      "Version": "1.8.6",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "ec0e5ab4e5f851f6ef32cd1d1984957f",
+      "Requirements": [
+        "Rcpp"
+      ]
     },
     "prettyunits": {
       "Package": "prettyunits",
@@ -934,6 +1006,18 @@
         "rmarkdown",
         "rstudioapi",
         "withr"
+      ]
+    },
+    "reshape2": {
+      "Package": "reshape2",
+      "Version": "1.4.4",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "bb5996d0bd962d214a11140d77589917",
+      "Requirements": [
+        "Rcpp",
+        "plyr",
+        "stringr"
       ]
     },
     "rlang": {
