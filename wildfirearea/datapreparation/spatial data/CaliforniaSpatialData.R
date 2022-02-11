@@ -9,7 +9,8 @@ library(sp)
 library(raster)
 
 #-------------------- Basic parameters-------------------------
-prj_dd <- 'EPSG:3785'
+prjMeter <- 'EPSG:3785'
+prjLonLat <- 'EPSG:4269'
 #--------------------Create base map----------------------------
 # load California map from ggplot
 california_boundary <- st_read('~/Github/wildfirearea/Data/California Boundary/CA_State_TIGER2016.shp')

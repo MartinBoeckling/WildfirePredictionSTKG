@@ -11,12 +11,12 @@ following data categories are used within this script:
 # import packages---------------------------------------------------------------
 library(ggplot2)
 library(dichromat)
-library(tidyverse)
+library(dplyr)
+library(rgdal)
 library(sf)
 library(sp)
 library(raster)
 library(data.table)
-library(DataExplorer)
 # Script configuration----------------------------------------------------------
 
 colorPalette <- grey.colors(n=20)
@@ -44,7 +44,7 @@ day. The columns in the dataset can be categorized into three groups:
 
 # read in weather data from csv file
 weather <- data.table::fread('~/GitHub/wildfirearea/data/weather/weather.csv')
-# NA Overview ==================================================================
+## NA Overview -----------------------------------------------------------------
 # exclude related attributes of weather variables
 weather <- weather %>%
   select(!contains('ATTRIBUTES'))
@@ -57,9 +57,56 @@ weatherNADf <- arrange(
 weatherNADf <- rownames_to_column(weatherNADf, var = 'Column')
 # plot na fraction
 ggplot(data = weatherNADf, aes(x=Column, y=NAFraction)) +
-  geom_bar(stat='identity') +
-  xlab('Percentage of missing observations') +
-  ylab()
-  coord_flip()
+  geom_bar(stat='identity', fill=colorPalette[5]) +
+  coord_flip() +
+  xlab('Weather column') +
+  ylab('Percentage of missing observations')
+  
 
-# Variable distribution ========================================================
+## Variable distribution -------------------------------------------------------
+'The variable distribution related to the weather variables play a key role for 
+the data preparation. To extend the punctual measurement to the research area
+the data preparation incorporates the interpolation of the measurements. For the
+variable the distribution builds the base to decide which interpolation method
+will be used.'
+### Station attributes -------------------------------------------------
+#### Elevation
+summary(weather$ELEVATION)
+ggplot(data = weather, aes(x=ELEVATION)) +
+  geom_histogram(binwidth = 30)
+
+#### Distribution of stations
+california_boundary <- st_read('~/Github/wildfirearea/data/californiaBoundary/CA_State_TIGER2016.shp')
+californiaSpol <- as_Spatial(california_boundary)
+californiaSpol <- spTransform(californiaSpol, CRS(prjLonLat))
+
+californiaSpol <- sf::st_as_sf(californiaSpol)
+stationOverview <- weather %>%
+  select(STATION, LATITUDE, LONGITUDE) %>%
+  distinct()
+nrow(stationOverview)
+
+ggplot(californiaSpol) +
+  geom_sf(colour='black', fill='white') +
+  geom_point(data = stationOverview, aes(x= LONGITUDE, y=LATITUDE)) +
+  theme_minimal() +
+  xlab('Longitude') +
+  ylab('Latitude')
+### Temperature ----------------------------------------------------------------
+#### TMAX
+summary(weather$TMAX)
+ggplot(data = weather, aes(x=TMAX)) +
+  geom_histogram()
+  
+#### TMIN
+summary(weather$TMIN)
+
+#### TAVG
+summary(weather$TAVG)
+ggplot(data = weather, aes(x=TAVG)) +
+  geom_histogram()
+
+### Precipitation --------------------------------------------------------------
+summary(weather$PRCP)
+ggplot(data = weather, aes(x=PRCP)) +
+  geom_histogram()
