@@ -8,29 +8,59 @@ following data categories are used within this script:
 - Weather
 - Wildfire
 '
-# import packages---------------------------------------------------------------
+# import packages --------------------------------------------------------------
 library(ggplot2)
+library(lubridate)
 library(dichromat)
 library(dplyr)
+library(tibble)
 library(rgdal)
 library(sf)
 library(sp)
 library(raster)
 library(data.table)
-# Script configuration----------------------------------------------------------
+# Script configuration ---------------------------------------------------------
 
 colorPalette <- grey.colors(n=20)
 
+# Functions --------------------------------------------------------------------
+'Function to plot Bar diagram of NA Fraction per column in a dataset
+- Requirement: 
+  - Input: needs to be of class data.frame
+  - Used package: tibble
+- Input: Object of class data.frame
+- Output: Display ggplot bar plot
+'
+NAColumnPlot <- function(df){
+  # check if input variable is of class data.frame
+  stopifnot('Input dataframe needs to be of class data.frame' = 'data.frame' %in% class(df))
+  # extract column wise percentage of NA Values by summing boolean return of function is.na up
+  NADf <- data.frame(NAFraction =
+                       sapply(df, function(column) sum(is.na(column))/nrow(df))
+    )
+  # 
+  NADf <- tibble::rownames_to_column(NADf, var = 'Column')
+  # plot na fraction in a bar diagram
+  ggplot(data = NADf, aes(x=reorder(Column, -NAFraction), y=NAFraction)) +
+    geom_bar(stat='identity', fill=colorPalette[1], color='white') +
+    coord_flip() +
+    xlab('Column') +
+    ylab('Percentage of missing observations') +
+    theme_minimal()
+}
+HistogramPlot <- function(df){
+  
+}
 # Land Cover --------------------------------------------------------------
 
 # Elevation ---------------------------------------------------------------
 # read elevation dataset
-rasterElevation <- raster::raster('~/GitHub/wildfirearea/Data/Elevation/90 m DEM of California, USA/commondata/data0/ca_dem/w001001.adf')
+rasterElevation <- raster::raster('~/GitHub/wildfirearea/data/elevation/Tiff elevation/CaliforniaElevation.tif')
 # convert rasterElevation type of raster to dataframe
 # convert to SpatialPoints Dataframe
 rasterElevationPoint <- raster::rasterToPoints(rasterElevation, spatial = TRUE)
 # convert Spatial Points dataframe to solely dataframe
-rasterElevationDf <- data.frame(rasterElevationPoint)
+rasterElevationDf <- as.data.frame(rasterElevation)
 
 # visualize elevation raster
 plot(rasterElevation, col=colorPalette)
@@ -50,18 +80,7 @@ weather <- weather %>%
   select(!contains('ATTRIBUTES'))
 # plot count of missing elements
 # extract na fraction of weather dataframe
-weatherNADf <- arrange(
-  data.frame(NAFraction =
-  sapply(weather, function(column) sum(is.na(column))/nrow(weather))
-  ), NAFraction)
-weatherNADf <- rownames_to_column(weatherNADf, var = 'Column')
-# plot na fraction
-ggplot(data = weatherNADf, aes(x=Column, y=NAFraction)) +
-  geom_bar(stat='identity', fill=colorPalette[5]) +
-  coord_flip() +
-  xlab('Weather column') +
-  ylab('Percentage of missing observations')
-  
+NAColumnPlot(weather)
 
 ## Variable distribution -------------------------------------------------------
 'The variable distribution related to the weather variables play a key role for 
@@ -69,13 +88,17 @@ the data preparation. To extend the punctual measurement to the research area
 the data preparation incorporates the interpolation of the measurements. For the
 variable the distribution builds the base to decide which interpolation method
 will be used.'
-### Station attributes -------------------------------------------------
-#### Elevation
+### Station attributes ---------------------------------------------------------
+#### Elevation -----------------------------------------------------------------
 summary(weather$ELEVATION)
 ggplot(data = weather, aes(x=ELEVATION)) +
-  geom_histogram(binwidth = 30)
+  geom_histogram(binwidth = 30, fill=colorPalette[1]) +
+  xlab('Elevation in meters') +
+  ylab('Count') +
+  theme_minimal()
 
-#### Distribution of stations
+#### Distribution of stations --------------------------------------------------
+# read in california boundary from shapefile
 california_boundary <- st_read('~/Github/wildfirearea/data/californiaBoundary/CA_State_TIGER2016.shp')
 californiaSpol <- as_Spatial(california_boundary)
 californiaSpol <- spTransform(californiaSpol, CRS(prjLonLat))
@@ -94,19 +117,50 @@ ggplot(californiaSpol) +
   ylab('Latitude')
 ### Temperature ----------------------------------------------------------------
 #### TMAX
+# print distribution statistics to console
 summary(weather$TMAX)
-ggplot(data = weather, aes(x=TMAX)) +
-  geom_histogram()
-  
+
+# filter data out that is over maximum and minimum
+weather %>%
+  filter(TMAX <= 56.67 & TMAX >= -42.78) %>%
+  ggplot(., aes(x=TMAX)) +
+    geom_histogram(binwidth = 5, fill=colorPalette[1]) +
+    theme_minimal() +
+    xlab('maximum Temperature in °C') +
+    ylab('Count')
+
+# 
+weather %>%
+  filter(TMIN <= 56.67 & TMIN >= -42.78) %>%
+  filter(TMAX <= 56.67 & TMAX >= -42.78) %>%
+  mutate(YEAR = as.character(year(DATE))) %>%
+  # plot histogram over distribution
+  ggplot(., aes(x = TMIN, y = TMAX)) +
+    geom_point(aes(color = YEAR), alpha = .5) +
+  scale_color_manual(values = colorPalette)
+
 #### TMIN
 summary(weather$TMIN)
+# filter data out that is over maximum and minimum
+weather %>%
+  filter(TMIN <= 56.67 & TMIN >= -42.78) %>%
+# plot histogram over distribution
+  ggplot(., aes(x=TMIN)) +
+  geom_histogram(binwidth = 5, fill=colorPalette[1]) +
+  theme_minimal() +
+  xlab('minimum Temperature in °C') +
+  ylab('Count')
 
 #### TAVG
+# print distribution statistics to console
 summary(weather$TAVG)
-ggplot(data = weather, aes(x=TAVG)) +
-  geom_histogram()
+# filter data out that is over maximum and minimum
+weather %>%
+  filter(TAVG <= 56.67 & TAVG >= -42.78) %>%
+  ggplot(., aes(x=TAVG)) +
+  geom_histogram(binwidth = 5, fill=colorPalette[1]) +
+  theme_minimal() +
+  xlab('average Temperature in °C') +
+  ylab('Count')
 
-### Precipitation --------------------------------------------------------------
-summary(weather$PRCP)
-ggplot(data = weather, aes(x=PRCP)) +
-  geom_histogram()
+# 
