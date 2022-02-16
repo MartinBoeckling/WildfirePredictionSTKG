@@ -31,7 +31,7 @@ colorPalette <- grey.colors(n=20)
 - Input: Object of class data.frame
 - Output: Display ggplot bar plot
 '
-NAColumnPlot <- function(df){
+naColumnPlot <- function(df){
   # check if input variable is of class data.frame
   stopifnot('Input dataframe needs to be of class data.frame' = 'data.frame' %in% class(df))
   # extract column wise percentage of NA Values by summing boolean return of function is.na up
@@ -48,8 +48,17 @@ NAColumnPlot <- function(df){
     ylab('Percentage of missing observations') +
     theme_minimal()
 }
-HistogramPlot <- function(df){
-  
+
+histogramPlot <- function(df, column, minThreshold, maxThreshold, binWidth, xaxisDesc){
+  stopifnot('Input dataframe needs to be of class data.frame' = 'data.frame' %in% class(df))
+  df %>%
+    filter(!!as.symbol(column) <= minThreshold & !!as.symbol(column) >= maxThreshold) %>%
+    # plot histogram over distribution
+    ggplot(., aes(x=!!as.symbol(column))) +
+    geom_histogram(binwidth = binWidth, fill=colorPalette[1]) +
+    xlab(xaxisDesc) +
+    ylab('Count') +
+    theme_minimal()
 }
 # Land Cover --------------------------------------------------------------
 
@@ -116,28 +125,15 @@ ggplot(californiaSpol) +
   xlab('Longitude') +
   ylab('Latitude')
 ### Temperature ----------------------------------------------------------------
+# general limit
+maxTemperature <- 56.67
+minTemperature <- -42.78
 #### TMAX
 # print distribution statistics to console
 summary(weather$TMAX)
 
 # filter data out that is over maximum and minimum
-weather %>%
-  filter(TMAX <= 56.67 & TMAX >= -42.78) %>%
-  ggplot(., aes(x=TMAX)) +
-    geom_histogram(binwidth = 5, fill=colorPalette[1]) +
-    theme_minimal() +
-    xlab('maximum Temperature in °C') +
-    ylab('Count')
-
-# 
-weather %>%
-  filter(TMIN <= 56.67 & TMIN >= -42.78) %>%
-  filter(TMAX <= 56.67 & TMAX >= -42.78) %>%
-  mutate(YEAR = as.character(year(DATE))) %>%
-  # plot histogram over distribution
-  ggplot(., aes(x = TMIN, y = TMAX)) +
-    geom_point(aes(color = YEAR), alpha = .5) +
-  scale_color_manual(values = colorPalette)
+histogramPlot(weather, "TMAX", minTemperature, maxTemperature, 5, 'max temperature in °C')
 
 #### TMIN
 summary(weather$TMIN)
