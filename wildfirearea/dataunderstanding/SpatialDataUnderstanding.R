@@ -21,13 +21,14 @@ library(raster)
 library(data.table)
 # Script configuration ---------------------------------------------------------
 
-colorPalette <- grey.colors(n=20)
+colorPalette <- grDevices::grey.colors(n=20)
 
 # Functions --------------------------------------------------------------------
+
 'Function to plot Bar diagram of NA Fraction per column in a dataset
 - Requirement: 
   - Input: needs to be of class data.frame
-  - Used package: tibble
+  - Used package: tibble, ggplot2
 - Input: Object of class data.frame
 - Output: Display ggplot bar plot
 '
@@ -49,15 +50,43 @@ naColumnPlot <- function(df){
     theme_minimal()
 }
 
-histogramPlot <- function(df, column, minThreshold, maxThreshold, binWidth, xaxisDesc){
+'Function to plot histogram of continous variable in a dataset
+- Requirement:
+  - Input needs to be class of data.frame
+  - Used Package: dplyr, ggplot2
+- Input:
+  - df: Dataframe
+  - column: Column part of dataframe
+  - minValue: Lowest eligible value within specified column
+  - maxValue: Highest eligble value within specified column
+  - binWidth: specification of binwidth for histogram
+  - xaxisDesc: X-axis label description
+- Output: display ggplot object'
+histogramPlot <- function(df, column, minValue, maxValue, binWidth, xaxisDesc){
   stopifnot('Input dataframe needs to be of class data.frame' = 'data.frame' %in% class(df))
   df %>%
-    filter(!!as.symbol(column) <= minThreshold & !!as.symbol(column) >= maxThreshold) %>%
+    filter(!!as.symbol(column) <= maxValue & !!as.symbol(column) >= minValue) %>%
     # plot histogram over distribution
-    ggplot(., aes(x=!!as.symbol(column))) +
-    geom_histogram(binwidth = binWidth, fill=colorPalette[1]) +
+    ggplot(., aes_string(x=column)) +
+    geom_histogram(binwidth=binWidth, fill=colorPalette[1]) +
     xlab(xaxisDesc) +
     ylab('Count') +
+    theme_minimal()
+}
+
+heatmapDatePlot <- function(df, column, minValue, maxValue, aggFun, xaxisDesc, yaxisDesc){
+  stopifnot('Input dataframe needs to be of class data.frame' = 'data.frame' %in% class(df))
+  stopifnot('Input dataframe needs to be present in input df' = column %in% colnames(df))
+  df %>%
+    select(DATE, !!as.symbol(column)) %>%
+    filter(!!as.symbol(column) <= maxValue & !!as.symbol(column) >= minValue) %>%
+    mutate(MONTH = month(DATE), YEAR = year(DATE)) %>%
+    group_by(MONTH, YEAR) %>%
+    summarise(!!as.symbol(column) = min(!!as.symbol(column))) %>%
+    ggplot(., aes(factor(MONTH), factor(YEAR), fill=!!as.symbol(column))) +
+    scale_fill_gradient(low=colorPalette[20], high=colorPalette[1]) +
+    xlab(xaxisDesc) +
+    ylab(yaxisDesc) +
     theme_minimal()
 }
 # Land Cover --------------------------------------------------------------
@@ -98,7 +127,7 @@ the data preparation incorporates the interpolation of the measurements. For the
 variable the distribution builds the base to decide which interpolation method
 will be used.'
 ### Station attributes ---------------------------------------------------------
-#### Elevation -----------------------------------------------------------------
+#### Elevation
 summary(weather$ELEVATION)
 ggplot(data = weather, aes(x=ELEVATION)) +
   geom_histogram(binwidth = 30, fill=colorPalette[1]) +
@@ -106,7 +135,7 @@ ggplot(data = weather, aes(x=ELEVATION)) +
   ylab('Count') +
   theme_minimal()
 
-#### Distribution of stations --------------------------------------------------
+#### Distribution of stations
 # read in california boundary from shapefile
 california_boundary <- st_read('~/Github/wildfirearea/data/californiaBoundary/CA_State_TIGER2016.shp')
 californiaSpol <- as_Spatial(california_boundary)
@@ -125,38 +154,31 @@ ggplot(californiaSpol) +
   xlab('Longitude') +
   ylab('Latitude')
 ### Temperature ----------------------------------------------------------------
-# general limit
+# general limit for temperature
 maxTemperature <- 56.67
 minTemperature <- -42.78
 #### TMAX
 # print distribution statistics to console
 summary(weather$TMAX)
-
-# filter data out that is over maximum and minimum
+# plot histogram with histogramPlot function
 histogramPlot(weather, "TMAX", minTemperature, maxTemperature, 5, 'max temperature in °C')
+# distribution of data over month and year
 
 #### TMIN
 summary(weather$TMIN)
-# filter data out that is over maximum and minimum
-weather %>%
-  filter(TMIN <= 56.67 & TMIN >= -42.78) %>%
-# plot histogram over distribution
-  ggplot(., aes(x=TMIN)) +
-  geom_histogram(binwidth = 5, fill=colorPalette[1]) +
-  theme_minimal() +
-  xlab('minimum Temperature in °C') +
-  ylab('Count')
+# plot histogram with histogramPlot function
+histogramPlot(weather, "TMIN", minTemperature, maxTemperature, 5, 'min temperature in °C')
 
 #### TAVG
 # print distribution statistics to console
 summary(weather$TAVG)
-# filter data out that is over maximum and minimum
-weather %>%
-  filter(TAVG <= 56.67 & TAVG >= -42.78) %>%
-  ggplot(., aes(x=TAVG)) +
-  geom_histogram(binwidth = 5, fill=colorPalette[1]) +
-  theme_minimal() +
-  xlab('average Temperature in °C') +
-  ylab('Count')
+# plot histogram with histogramPlot function
+histogramPlot(weather, "TAVG", minTemperature, maxTemperature, 5, 'avg temperature in °C')
 
-# 
+
+### Precipitation --------------------------------------------------------------
+#### PRCP
+# print distribution statistics to console
+minPRCP <- 0
+maxPRCP <- 656.08
+summary(weather$PRCP)
