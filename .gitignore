@@ -140,11 +140,11 @@ data/
 .Rapp.history
 
 # Session Data files
-**.RData
-**.RDataTmp
+*.RData
+*.RDataTmp
 
 # User-specific files
-**.Ruserdata
+*.Ruserdata
 
 # Example code in package build process
 *-Ex.R
