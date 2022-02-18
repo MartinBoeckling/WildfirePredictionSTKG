@@ -74,21 +74,25 @@ histogramPlot <- function(df, column, minValue, maxValue, binWidth, xaxisDesc){
     theme_minimal()
 }
 
-heatmapDatePlot <- function(df, column, minValue, maxValue, aggFun, xaxisDesc, yaxisDesc){
+heatmapDatePlot <- function(df, column, minValue, maxValue, funString, xaxisDesc, yaxisDesc){
   stopifnot('Input dataframe needs to be of class data.frame' = 'data.frame' %in% class(df))
-  stopifnot('Input dataframe needs to be present in input df' = column %in% colnames(df))
+  stopifnot('Input column needs to be present in input dataframe' = column %in% colnames(df))
+  aggFun <- parse(text = funString)
   df %>%
     select(DATE, !!as.symbol(column)) %>%
     filter(!!as.symbol(column) <= maxValue & !!as.symbol(column) >= minValue) %>%
     mutate(MONTH = month(DATE), YEAR = year(DATE)) %>%
     group_by(MONTH, YEAR) %>%
-    summarise(!!as.symbol(column) = min(!!as.symbol(column))) %>%
-    ggplot(., aes(factor(MONTH), factor(YEAR), fill=!!as.symbol(column))) +
+    summarise(aggColumn = eval(aggFun)) %>%
+    ggplot(., aes(factor(MONTH), factor(YEAR), fill=aggColumn)) +
+    geom_tile() +
     scale_fill_gradient(low=colorPalette[20], high=colorPalette[1]) +
     xlab(xaxisDesc) +
     ylab(yaxisDesc) +
+    labs(fill=column) +
     theme_minimal()
 }
+
 # Land Cover --------------------------------------------------------------
 
 # Elevation ---------------------------------------------------------------
@@ -163,18 +167,22 @@ summary(weather$TMAX)
 # plot histogram with histogramPlot function
 histogramPlot(weather, "TMAX", minTemperature, maxTemperature, 5, 'max temperature in °C')
 # distribution of data over month and year
+heatmapDatePlot(weather, 'TMAX', minTemperature, maxTemperature, 'max(TMAX)', 'Month', 'Year')
 
 #### TMIN
 summary(weather$TMIN)
 # plot histogram with histogramPlot function
 histogramPlot(weather, "TMIN", minTemperature, maxTemperature, 5, 'min temperature in °C')
+# distribution of data over month and year
+heatmapDatePlot(weather, 'TMIN', minTemperature, maxTemperature, 'min(TMIN)', 'Month', 'Year')
 
 #### TAVG
 # print distribution statistics to console
 summary(weather$TAVG)
 # plot histogram with histogramPlot function
 histogramPlot(weather, "TAVG", minTemperature, maxTemperature, 5, 'avg temperature in °C')
-
+# distribution of data over month and year
+heatmapDatePlot(weather, 'TAVG', minTemperature, maxTemperature, 'mean(TAVG)', 'Month', 'Year')
 
 ### Precipitation --------------------------------------------------------------
 #### PRCP
@@ -182,3 +190,24 @@ histogramPlot(weather, "TAVG", minTemperature, maxTemperature, 5, 'avg temperatu
 minPRCP <- 0
 maxPRCP <- 656.08
 summary(weather$PRCP)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "PRCP", minPRCP, maxPRCP, 5, 'Precipitation in mm')
+# distribution of data over month and year
+heatmapDatePlot(weather, 'PRCP', minPRCP, maxPRCP, 'max(PRCP)', 'Month', 'Year')
+
+#### DAPR
+summary(weather$DAPR)
+
+#### DWPR
+summary(weather$DWPR)
+
+#### MDPR
+summary(weather$MDPR)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "MDPR", minPRCP, maxPRCP, 10, 'Precipitation in mm')
+# distribution of data over month and year
+heatmapDatePlot(weather, 'MDPR', minPRCP, maxPRCP, 'mean(MDPR)', 'Month', 'Year')
+
+### Snowfall -------------------------------------------------------------------
+#### SNOW
+summary(weather$SNOW)
