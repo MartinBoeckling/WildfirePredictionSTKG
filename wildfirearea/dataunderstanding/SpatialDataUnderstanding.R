@@ -11,7 +11,6 @@ following data categories are used within this script:
 # import packages --------------------------------------------------------------
 library(ggplot2)
 library(lubridate)
-library(dichromat)
 library(dplyr)
 library(tibble)
 library(rgdal)
@@ -210,4 +209,64 @@ heatmapDatePlot(weather, 'MDPR', minPRCP, maxPRCP, 'mean(MDPR)', 'Month', 'Year'
 
 ### Snowfall -------------------------------------------------------------------
 #### SNOW
+minSNOW <- 0
+maxSNOW <- 1701.8
 summary(weather$SNOW)
+histogramPlot(weather, "SNOW", minSNOW, maxSNOW, 10, 'Snowfall in mm')
+# heatmap average snowfall over month and year
+heatmapDatePlot(weather, 'SNOW', minSNOW, maxSNOW, 'mean(SNOW)', 'Month', 'Year')
+# heatmap median snowfall over month and year
+heatmapDatePlot(weather, 'SNOW', minSNOW, maxSNOW, 'median(SNOW)', 'Month', 'Year')
+# heatmap max snowfall over month and year
+heatmapDatePlot(weather, 'SNOW', minSNOW, maxSNOW, 'max(SNOW)', 'Month', 'Year')
+# heatmap minimum snowfall over month and year
+heatmapDatePlot(weather, 'SNOW', minSNOW, maxSNOW, 'min(SNOW)', 'Month', 'Year')
+
+#### SNWD
+minSNWD <- 0
+maxSNWD <- 11455.4
+summary(weather$SNWD)
+histogramPlot(weather, "SNWD", minSNWD, maxSNWD, 50, 'Snowdepth in mm')
+# heatmap average snow depth over month and year
+heatmapDatePlot(weather, 'SNWD', minSNWD, maxSNWD, 'mean(SNWD)', 'Month', 'Year')
+# heatmap max snow depth over month and year
+heatmapDatePlot(weather, 'SNWD', minSNWD, maxSNWD, 'max(SNWD)', 'Month', 'Year')
+# heatmap min snow depth over month and year
+heatmapDatePlot(weather, 'SNWD', minSNWD, maxSNWD, 'min(SNWD)', 'Month', 'Year')
+
+### Cloudiness --------------------------------------------------------------------
+# Cloudiness limit parameters
+minCloudiness <- 0
+maxCloudiness <- 100
+#### ACMH
+summary(weather$ACMH)
+histogramPlot(weather, 'ACMH', minCloudiness, maxCloudiness, 10, 'manual Cloudiness observation in %')
+heatmapDatePlot(weather, 'ACMH', minSNWD, maxSNWD, 'mean(ACMH)', 'Month', 'Year')
+#### ACSH
+summary(weather$ACSH)
+histogramPlot(weather, 'ACSH', minCloudiness, maxCloudiness, 10, 'manual Cloudiness observation in %')
+heatmapDatePlot(weather, 'ACSH', minSNWD, maxSNWD, 'mean(ACSH)', 'Month', 'Year')
+
+### Wind --------------------------------------------------------------------------
+# Wind limit parameters
+minWind <- 0
+maxWind <- 88.961
+#### AWND
+summary(weather$AWND)
+histogramPlot(weather, 'AWND', minWind, maxWind, 3, 'average windspeed in meter per second')
+heatmapDatePlot(weather, 'AWND', minWind, maxWind, 'mean(AWND)', 'Month', 'Year')
+heatmapDatePlot(weather, 'AWND', minWind, maxWind, 'median(AWND)', 'Month', 'Year')
+heatmapDatePlot(weather, 'AWND', minWind, maxWind, 'max(AWND)', 'Month', 'Year')
+heatmapDatePlot(weather, 'AWND', minWind, maxWind, 'min(AWND)', 'Month', 'Year')
+#### DAWM
+summary(weather$DAWM)
+histogramPlot(weather, 'DAWM', minWind, maxWind, 3, 'days of multi-day wind measurement')
+heatmapDatePlot(weather, 'DAWM', minWind, maxWind, 'mean(DAWM)', 'Month', 'Year')
+
+#### FMTM
+minHour <- 0
+maxHour <- 2400
+summary(weather$FMTM)
+histogramPlot(weather, 'FMTM', minHour, maxHour, 100, 'Highest wind speed time in hhmm')
+heatmapDatePlot(weather, 'FMTM', minHour, maxHour, 'mean(FMTM)', 'Month', 'Year')
+
