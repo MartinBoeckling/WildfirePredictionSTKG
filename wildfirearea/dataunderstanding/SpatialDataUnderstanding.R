@@ -2,6 +2,7 @@
 data that is used in the master thesis. The data will be analyzed by its values
 and provides the visualizations used for the data understanding phase. The 
 following data categories are used within this script:
+
 - Elevation data (Path/to/file)
 - Land Cover & Vegetation (Path/to/file)
 - Openstreet map
@@ -14,13 +15,14 @@ library(lubridate)
 library(dplyr)
 library(tibble)
 library(rgdal)
+library(stars)
 library(sf)
 library(sp)
 library(raster)
 library(data.table)
 # Script configuration ---------------------------------------------------------
 
-colorPalette <- grDevices::grey.colors(n=20)
+colorPalette <- grDevices::grey.colors(n=25)
 
 # Functions --------------------------------------------------------------------
 
@@ -28,7 +30,6 @@ colorPalette <- grDevices::grey.colors(n=20)
 - Requirement: 
   - Input: needs to be of class data.frame
   - Used package: tibble, ggplot2
-- Input: Object of class data.frame
 - Output: Display ggplot bar plot
 '
 naColumnPlot <- function(df){
@@ -51,7 +52,7 @@ naColumnPlot <- function(df){
 
 'Function to plot histogram of continous variable in a dataset
 - Requirement:
-  - Input needs to be class of data.frame
+  - Input df needs to be class of data.frame
   - Used Package: dplyr, ggplot2
 - Input:
   - df: Dataframe
@@ -92,19 +93,67 @@ heatmapDatePlot <- function(df, column, minValue, maxValue, funString, xaxisDesc
     theme_minimal()
 }
 
-# Land Cover --------------------------------------------------------------
+# Land Cover -------------------------------------------------------------------
+landcoverFileList <- list.files(path = 'data/landCover', pattern = '.tif$', full.names = TRUE)
+landCover <- stars::read_stars(landcoverFileList, along = 'band')
+downsampledLandCover <- st_downsample(landCover, 10)
+landCoverDf <- as.data.frame(downsampledLandCover)
+landCoverDf$band <- recode(landCoverDf$band, '1' = '2001', '2' = '2004', '3' = '2006', '4' = '2008',
+                    '5' = '2011', '6' = '2013', '7' = '2016', '8' = '2019')
+# plot missing values over each column
+NAColumnPlot(landCoverDf)
 
-# Elevation ---------------------------------------------------------------
+# plot barplot for landcover category count
+ggplot(landCoverDf, aes(x=attr)) +
+  geom_bar() +
+  facet_wrap(~band, ncol=2) +
+  xlab('Landcover type') +
+  ylab('Count') +
+  coord_flip()
+# Powerlines -------------------------------------------------------------------
+# read in powerline data
+powerline <- sf::read_sf('data/openDataCalifornia/California_Electric_Transmission_Lines/Transmission_Line.shp')
+## NA Overview -----------------------------------------------------------------
+# plot NA statistics
+naColumnPlot(powerline)
+## Variable distribution -------------------------------------------------------
+powerlineCategoricalColumns <- colnames(powerline)[grepl('factor|logical|character',sapply(powerline,class))]
+powerlineNumericalColumns <- colnames(powerline)[!grepl('factor|logical|character',sapply(powerline,class))]
+
+for (powerlineColumn in powerlineNumericalColumns) {
+  histogramPlot(powerline, powerlineColumn, )
+}
+### plot powerlines located in California area
+ggplot() +
+  geom_sf(data = californiaBoundary, fill='white') +
+  geom_sf(data = powerline, colour=colorPalette[1]) +
+  xlab('Longitude') +
+  ylab('Latitude') +
+  theme_minimal()
+# Open Street map
+
+## NA Overview
+
+# Elevation --------------------------------------------------------------------
 # read elevation dataset
-rasterElevation <- raster::raster('~/GitHub/wildfirearea/data/elevation/Tiff elevation/CaliforniaElevation.tif')
+rasterElevation <- stars::read_stars('~/GitHub/wildfirearea/data/elevation/Tiff elevation/CaliforniaElevation.tif')
+# downsample raster size
+downsampledRaster <- st_downsample(rasterElevation, 15)
 # convert rasterElevation type of raster to dataframe
-# convert to SpatialPoints Dataframe
-rasterElevationPoint <- raster::rasterToPoints(rasterElevation, spatial = TRUE)
-# convert Spatial Points dataframe to solely dataframe
-rasterElevationDf <- as.data.frame(rasterElevation)
+rasterElevationDf <- as.data.frame(downsampledRaster)
+## NA Overview -----------------------------------------------------------------
+# plot NA statistics
+naColumnPlot(rasterElevationDf)
+## Variable Distribution -------------------------------------------------------
+# summary statistics to elevation
+summary(rasterElevationDf$CaliforniaElevation.tif)
+# plot histogram of elevation value
+minElevation <- -86
+maxElevation <- 4421
+histogramPlot(rasterElevationDf, 'CaliforniaElevation.tif', minElevation, maxElevation, 100, 'Elevation in meter')
 
 # visualize elevation raster
-plot(rasterElevation, col=colorPalette)
+plot(rasterElevation)
 # Weather ----------------------------------------------------------------------
 'The weather dataset contains weather measurements from the California area in
 which one row in the dataset represents the measurement from one station for one
@@ -183,6 +232,14 @@ histogramPlot(weather, "TAVG", minTemperature, maxTemperature, 5, 'avg temperatu
 # distribution of data over month and year
 heatmapDatePlot(weather, 'TAVG', minTemperature, maxTemperature, 'mean(TAVG)', 'Month', 'Year')
 
+#### TOBS
+# print distribution statistics to console
+summary(weather$TOBS)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "TOBS", minTemperature, maxTemperature, 5, 'temperature at observation in °C')
+# distribution of data over month and year
+heatmapDatePlot(weather, 'TOBS', minTemperature, maxTemperature, 'mean(TOBS)', 'Month', 'Year')
+
 ### Precipitation --------------------------------------------------------------
 #### PRCP
 # print distribution statistics to console
@@ -192,7 +249,7 @@ summary(weather$PRCP)
 # plot histogram with histogramPlot function
 histogramPlot(weather, "PRCP", minPRCP, maxPRCP, 5, 'Precipitation in mm')
 # distribution of data over month and year
-heatmapDatePlot(weather, 'PRCP', minPRCP, maxPRCP, 'max(PRCP)', 'Month', 'Year')
+heatmapDatePlot(weather, 'PRCP', minPRCP, maxPRCP, 'mean(PRCP)', 'Month', 'Year')
 
 #### DAPR
 summary(weather$DAPR)
@@ -212,6 +269,7 @@ heatmapDatePlot(weather, 'MDPR', minPRCP, maxPRCP, 'mean(MDPR)', 'Month', 'Year'
 minSNOW <- 0
 maxSNOW <- 1701.8
 summary(weather$SNOW)
+# plot histogram with histogramPlot function
 histogramPlot(weather, "SNOW", minSNOW, maxSNOW, 10, 'Snowfall in mm')
 # heatmap average snowfall over month and year
 heatmapDatePlot(weather, 'SNOW', minSNOW, maxSNOW, 'mean(SNOW)', 'Month', 'Year')
@@ -226,6 +284,7 @@ heatmapDatePlot(weather, 'SNOW', minSNOW, maxSNOW, 'min(SNOW)', 'Month', 'Year')
 minSNWD <- 0
 maxSNWD <- 11455.4
 summary(weather$SNWD)
+# plot histogram with histogramPlot function
 histogramPlot(weather, "SNWD", minSNWD, maxSNWD, 50, 'Snowdepth in mm')
 # heatmap average snow depth over month and year
 heatmapDatePlot(weather, 'SNWD', minSNWD, maxSNWD, 'mean(SNWD)', 'Month', 'Year')
@@ -234,17 +293,21 @@ heatmapDatePlot(weather, 'SNWD', minSNWD, maxSNWD, 'max(SNWD)', 'Month', 'Year')
 # heatmap min snow depth over month and year
 heatmapDatePlot(weather, 'SNWD', minSNWD, maxSNWD, 'min(SNWD)', 'Month', 'Year')
 
-### Cloudiness --------------------------------------------------------------------
+### Cloudiness -----------------------------------------------------------------
 # Cloudiness limit parameters
 minCloudiness <- 0
 maxCloudiness <- 100
 #### ACMH
 summary(weather$ACMH)
+# plot histogram with histogramPlot function
 histogramPlot(weather, 'ACMH', minCloudiness, maxCloudiness, 10, 'manual Cloudiness observation in %')
+# heatmap average manual observation cloudiness from midnight over month and year
 heatmapDatePlot(weather, 'ACMH', minSNWD, maxSNWD, 'mean(ACMH)', 'Month', 'Year')
 #### ACSH
 summary(weather$ACSH)
+# plot histogram with histogramPlot function
 histogramPlot(weather, 'ACSH', minCloudiness, maxCloudiness, 10, 'manual Cloudiness observation in %')
+# heatmap of average ACMH over month and year
 heatmapDatePlot(weather, 'ACSH', minSNWD, maxSNWD, 'mean(ACSH)', 'Month', 'Year')
 
 ### Wind --------------------------------------------------------------------------
@@ -253,20 +316,281 @@ minWind <- 0
 maxWind <- 88.961
 #### AWND
 summary(weather$AWND)
+# plot histogram with histogramPlot function
 histogramPlot(weather, 'AWND', minWind, maxWind, 3, 'average windspeed in meter per second')
+# heatmap of average AWND over month and year
 heatmapDatePlot(weather, 'AWND', minWind, maxWind, 'mean(AWND)', 'Month', 'Year')
+# heatmap of median AWND over month and year
 heatmapDatePlot(weather, 'AWND', minWind, maxWind, 'median(AWND)', 'Month', 'Year')
+# heatmap of maximum AWND over month and year
 heatmapDatePlot(weather, 'AWND', minWind, maxWind, 'max(AWND)', 'Month', 'Year')
+# heatmap of minimum AWND over month and year
 heatmapDatePlot(weather, 'AWND', minWind, maxWind, 'min(AWND)', 'Month', 'Year')
+
 #### DAWM
 summary(weather$DAWM)
+# plot histogram with histogramPlot function
 histogramPlot(weather, 'DAWM', minWind, maxWind, 3, 'days of multi-day wind measurement')
+# heatmap of average DAWM over month and year
 heatmapDatePlot(weather, 'DAWM', minWind, maxWind, 'mean(DAWM)', 'Month', 'Year')
 
+#### WDF2
+# limit parameters of lowest and highest possible degree
+minDegree <- 0
+maxDegree <- 360
+# summary statistics
+summary(weather$WDF2)
+# plot histogram with histogramPlot function
+histogramPlot(weather, 'WDF2', minDegree, maxDegree, 10, 'direction of fastest 2 minute wind in degree')
+# heatmap of average WDF2 over month and year
+heatmapDatePlot(weather, 'WDF2', minWind, maxWind, 'mean(WDF2)', 'Month', 'Year')
+
+#### WDF5
+# summary statistics
+summary(weather$WDF5)
+# plot histogram with histogramPlot function
+histogramPlot(weather, 'WDF5', minDegree, maxDegree, 10, 'direction of fastest 5 minute wind in degree')
+# heatmap of average WDF5 over month and year
+heatmapDatePlot(weather, 'WDF5', minWind, maxWind, 'mean(WDF5)', 'Month', 'Year')
+
+#### WDFG
+summary(weather$WDFG)
+# plot histogram with histogramPlot function
+histogramPlot(weather, 'WDFG', minDegree, maxDegree, 10, 'direction of peak wind gust in degree')
+# heatmap of average WDFG over month and year
+heatmapDatePlot(weather, 'WDFG', minWind, maxWind, 'mean(WDFG)', 'Month', 'Year')
+
+#### WDFM
+minWindMovement <- 0
+maxWindMovement <- max(weather$WDMV, na.rm=TRUE)
+summary(weather$WDMV)
+# plot histogram with histogramPlot function
+histogramPlot(weather, 'WDMV', minWindMovement, maxWindMovement, 10, '24 hour wind movement in km')
+# heatmap of average WDMV over month and year
+heatmapDatePlot(weather, 'WDMV', minWind, maxWind, 'mean(WDMV)', 'Month', 'Year')
+
+#### WSF2
+summary(weather$WSF2)
+# plot histogram with histogramPlot function
+histogramPlot(weather, 'WSF2', minWind, maxWind, 5, 'fastest 2 minutes wind speed in meters per second')
+# heatmap of average WSF2 over month and year
+heatmapDatePlot(weather, 'WSF2', minWind, maxWind, 'mean(WSF2)', 'Month', 'Year')
+
+#### WSFG
+summary(weather$WSFG)
+# plot histogram with histogramPlot function
+histogramPlot(weather, 'WSFG', minWind, maxWind, 5, 'peak gust wind speed in meters per second')
+# heatmap of average WSFG over month and year
+heatmapDatePlot(weather, 'WSFG', minWind, maxWind, 'mean(WSFG)', 'Month', 'Year')
+
+#### WSFI
+summary(weather$WSFI)
+# plot histogram with histogramPlot function
+histogramPlot(weather, 'WSFI', minWind, maxWind, 5, 'highest instantaneous wind speed in meters per second')
+# heatmap of average WSFI over month and year
+heatmapDatePlot(weather, 'WSFI', minWind, maxWind, 'mean(WSFI)', 'Month', 'Year')
+
 #### FMTM
+# limit parameters for minimum clock time and maximum clock time
 minHour <- 0
 maxHour <- 2400
 summary(weather$FMTM)
+# plot histogram with histogramPlot function
 histogramPlot(weather, 'FMTM', minHour, maxHour, 100, 'Highest wind speed time in hhmm')
+# heatmap of average FMTM over month and year
 heatmapDatePlot(weather, 'FMTM', minHour, maxHour, 'mean(FMTM)', 'Month', 'Year')
+
+
+
+### Evaporation Pan ------------------------------------------------------------
+# limit parameters for evaporation
+minEvap <- 0
+maxEvap <- max(weather$EVAP, na.rm=TRUE)
+#### EVAP
+# print summary statistics for evaporation
+summary(weather$EVAP)
+# plot histogram with histogramPlot function
+histogramPlot(weather, 'EVAP', minEvap, maxEvap, 5, 'evaporation in mm')
+# heatmap of average EVAP over month and year
+heatmapDatePlot(weather, 'EVAP', minEvap, maxEvap, 'mean(EVAP)', 'Month', 'Year')
+
+#### MNPN
+# print summary statistics of minimum temperature in evaporation pan
+summary(weather$MNPN)
+# plot histogrtam with histogramPlot function
+histogramPlot(weather, 'MNPN', minTemperature, maxTemperature, 5, 'minimum tempreature in evaporation pan in °C')
+# heatmap of average MNPN over month and year
+heatmapDatePlot(weather, 'MNPN', minEvap, maxEvap, 'mean(MNPN)', 'Month', 'Year')
+
+#### MXPN
+# print summary statistics of maximum temperature in evaporation pan
+summary(weather$MXPN)
+# plot histogrtam with histogramPlot function
+histogramPlot(weather, 'MXPN', minTemperature, maxTemperature, 5, 'maximum tempreature in evaporation pan in °C')
+# heatmap of average MNPN over month and year
+heatmapDatePlot(weather, 'MXPN', minEvap, maxEvap, 'mean(MXPN)', 'Month', 'Year')
+
+### Ground Parameters--------------------------------------------------------------
+#### SN02
+# print summary statistics of SN02 variable
+summary(weather$SN02)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "SN02", minTemperature, maxTemperature, 10, 'minimum unknown soil temperature in 10cm depth in °C')
+# distribution of SN02 over month and year
+heatmapDatePlot(weather, 'SN02', minTemperature, maxTemperature, 'mean(SN02)', 'Month', 'Year')
+
+#### SN03
+# print summary statistics of SN03 variable
+summary(weather$SN03)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "SN03", minTemperature, maxTemperature, 10, 'minimum unknown soil temperature in 20 cm depth in °C')
+# distribution of SN03 over month and year
+heatmapDatePlot(weather, 'SN03', minTemperature, maxTemperature, 'mean(SN03)', 'Month', 'Year')
+
+#### SN32
+summary(weather$SN32)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "SN32", minTemperature, maxTemperature, 10, 'minimum bare ground temperature in 10 cm depth in °C')
+# distribution of SN32 over month and year
+heatmapDatePlot(weather, 'SN32', minTemperature, maxTemperature, 'mean(SN32)', 'Month', 'Year')
+
+#### SN33
+# print summary statistics
+summary(weather$SN33)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "SN33", minTemperature, maxTemperature, 10, 'minimum bare ground temperature in 20 cm depth in °C')
+# distribution of SN32 over month and year
+heatmapDatePlot(weather, 'SN33', minTemperature, maxTemperature, 'mean(SN33)', 'Month', 'Year')
+
+#### SN35
+# print summary statistics
+summary(weather$SN35)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "SN35", minTemperature, maxTemperature, 5, 'minimum bare ground temperature in 100 cm depth in °C')
+# distribution of SN32 over month and year
+heatmapDatePlot(weather, 'SN35', minTemperature, maxTemperature, 'mean(SN35)', 'Month', 'Year')
+
+#### SX02
+# print summary statistics of SN02 variable
+summary(weather$SX02)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "SX02", minTemperature, maxTemperature, 5, 'maximum unknown soil temperature in 10cm depth in °C')
+# distribution of SX02 over month and year
+heatmapDatePlot(weather, 'SX02', minTemperature, maxTemperature, 'mean(SX02)', 'Month', 'Year')
+
+#### SX03
+# print summary statistics of SN03 variable
+summary(weather$SX03)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "SX03", minTemperature, maxTemperature, 5, 'maximum unknown soil temperature in 20 cm depth in °C')
+# distribution of SX03 over month and year
+heatmapDatePlot(weather, 'SX03', minTemperature, maxTemperature, 'mean(SX03)', 'Month', 'Year')
+
+#### SX32
+summary(weather$SX32)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "SX32", minTemperature, maxTemperature, 10, 'maximum bare ground temperature in 10 cm depth in °C')
+# distribution of SX32 over month and year
+heatmapDatePlot(weather, 'SX32', minTemperature, maxTemperature, 'mean(SX32)', 'Month', 'Year')
+
+#### SX33
+# print summary statistics
+summary(weather$SX33)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "SX33", minTemperature, maxTemperature, 10, 'maximum bare ground temperature in 20 cm depth in °C')
+# distribution of SX32 over month and year
+heatmapDatePlot(weather, 'SX33', minTemperature, maxTemperature, 'mean(SX33)', 'Month', 'Year')
+
+#### SX35
+# print summary statistics
+summary(weather$SX35)
+# plot histogram with histogramPlot function
+histogramPlot(weather, "SX35", minTemperature, maxTemperature, 5, 'minimum bare ground temperature in 100 cm depth in °C')
+# distribution of SX32 over month and year
+heatmapDatePlot(weather, 'SX35', minTemperature, maxTemperature, 'mean(SX35)', 'Month', 'Year')
+
+### Special Weather type
+#### WT01
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT01', minPRCP, maxPRCP, 'sum(WT01)', 'Month', 'Year')
+
+#### WT02
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT02', minPRCP, maxPRCP, 'sum(WT02)', 'Month', 'Year')
+
+#### WT03
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT03', minPRCP, maxPRCP, 'sum(WT03)', 'Month', 'Year')
+
+#### WT04
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT04', minPRCP, maxPRCP, 'sum(WT04)', 'Month', 'Year')
+
+#### WT05
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT05', minPRCP, maxPRCP, 'sum(WT05)', 'Month', 'Year')
+
+#### WT06
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT06', minPRCP, maxPRCP, 'sum(WT06)', 'Month', 'Year')
+
+#### WT07
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT07', minPRCP, maxPRCP, 'sum(WT07)', 'Month', 'Year')
+
+#### WT08
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT08', minPRCP, maxPRCP, 'sum(WT08)', 'Month', 'Year')
+
+#### WT09
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT09', minPRCP, maxPRCP, 'sum(WT09)', 'Month', 'Year')
+
+#### WT10
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT10', minPRCP, maxPRCP, 'sum(WT10)', 'Month', 'Year')
+
+#### WT11
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT11', minPRCP, maxPRCP, 'sum(WT11)', 'Month', 'Year')
+
+#### WT13
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT13', minPRCP, maxPRCP, 'sum(WT13)', 'Month', 'Year')
+
+#### WT14
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT14', minPRCP, maxPRCP, 'sum(WT14)', 'Month', 'Year')
+
+#### WT16
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT16', minPRCP, maxPRCP, 'sum(WT16)', 'Month', 'Year')
+
+#### WT17
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT17', minPRCP, maxPRCP, 'sum(WT17)', 'Month', 'Year')
+
+#### WT18
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT18', minPRCP, maxPRCP, 'sum(WT18)', 'Month', 'Year')
+
+#### WT19
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WT19', minPRCP, maxPRCP, 'sum(WT19)', 'Month', 'Year')
+
+#### WV01
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WV01', minPRCP, maxPRCP, 'sum(WV01)', 'Month', 'Year')
+
+#### WV03
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WV03', minPRCP, maxPRCP, 'sum(WV03)', 'Month', 'Year')
+
+#### WV07
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WV07', minPRCP, maxPRCP, 'sum(WV07)', 'Month', 'Year')
+
+#### WV20
+# distribution of data over month and year
+heatmapDatePlot(weather, 'WV20', minPRCP, maxPRCP, 'sum(WV20)', 'Month', 'Year')
 
