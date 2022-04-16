@@ -1,6 +1,7 @@
 library(osmdata)
 library(readxl)
-
+library(sf)
+library(dplyr)
 
 
 osmApi <- function(timeSpan, osmKey, osmValue, osmDate) {
@@ -22,7 +23,14 @@ osmApi <- function(timeSpan, osmKey, osmValue, osmDate) {
   # return value of query
 }
 
-osmSettings <- read_excel('data/openstreetmap/OSMSettings.xlsx')
-osmSettings <- osmSettings[465:544,]
+californiaBoundary <- sf::st_read('data/californiaBoundary/CA_State_TIGER2016.shp')
+prjLonLat <- 'EPSG:4269'
+californiaBoundary <- sf::st_transform(californiaBoundary, crs = prjLonLat)
+californiaBbox <- sf::st_bbox(californiaBoundary)
+osmSettings <- read_excel('data/openstreetmap/OSMSettings2010.xlsx')
+osmSettings <- osmSettings %>%
+  dplyr::filter(grepl('2016|2017|2018|2019|2020|2021', osmDate))
+osmSettings <- osmSettings[37:198,]
 apply(osmSettings, 1,
       function(x) osmApi(900, x['osmKey'], x['osmValue'], x['osmDate']))
+

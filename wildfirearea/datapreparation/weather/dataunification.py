@@ -1,16 +1,33 @@
-import os
+'''
+Title: Unification of weather data
+Description: Unify single weather csv files and append them to a pandas dataframe. Output
+the constructed dataframe as a csv file
+Input:
+    - inputPath: Path to folder where csv files are stored in format dir/.../dir
+    - outputPath: Path to output folder where dataframe is stored in format dir/.../dir
+Output:
+    - CSV file containing with all files
+'''
+# import packages
 import pandas as pd
+from tqdm import tqdm
+from pathlib import Path
 
-# base settings
-input_path = 'data/weather/singlefiles'
-output_path = 'data/weather'
-weather_files_list = sorted([file for file in os.listdir(input_path) if file.endswith('.csv')])
-weather_df = pd.DataFrame()
+# base settings and parameters
+# define path input
+inputPath = Path('data/weather/singlefiles')
+outputPath = Path('data/weather')
+# extract all csv files storing in a sorted list
+weatherFilesList = sorted(list(inputPath.glob('*.csv')))
+# create empty pandas dataframe
+weatherDf = pd.DataFrame()
 
 # iterate over file list
-for file in weather_files_list:
-    data = pd.read_csv(f'{input_path}/{file}')
-    weather_df = weather_df.append(data)
+for filePath in tqdm(weatherFilesList):
+    # read csv file from 
+    data = pd.read_csv(filePath, low_memory=False)
+    # append to pandas dataframe
+    weatherDf = pd.concat([weatherDf, data], ignore_index=True)
 
-# write df out
-weather_df.to_csv(f'{output_path}/weather.csv', index=False)
+# write df to output Path
+weatherDf.to_csv(f'{outputPath}/weather.csv', index=False)

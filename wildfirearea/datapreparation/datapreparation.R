@@ -181,7 +181,15 @@ krigeValidation <- function(inputWeather, inputColumn, inputDate,
   return(krigeRMSEDf)
 }
 
-''
+'Title:
+
+Description:
+
+Input:
+
+Output:
+
+'
 idwFunction <- function(inputDf, inputColumn, inputDate,
                         inputLocations, inputFormula, minValue,
                         maxValue){
@@ -241,7 +249,29 @@ idwFunction <- function(inputDf, inputColumn, inputDate,
   
   return(idwPredict)
 }
-''
+'Title:
+Thin plate spine interpolation
+
+Description:
+This function performs an thin plate spline interpolation over a given value
+series of location based measurements. The thin plate spline interpolation
+performs a spline based interpolation over the given location values. The
+smoothing parameter gets validated on the LOOCV evaluation from the TPS function. 
+
+Input:
+  - inputWeather: Dataframe consisting of weather dataframe with station location
+  - inputColumn: Column in inputWeather dataframe for which the column needs to
+    be interpolated
+  - inputDate: Date for which the weather variable needs to be interpolated
+  - inputLocations: Sf dataframe consisting with centroid locations based on 
+    hexagon
+  - minValue: minimum value for value series
+  - maxValue: maximum value for value series
+
+Output:
+  - krigingPred: Sf Dataframe consisting of predicted category, inputDate, hexagon
+    ID and centroid column
+'
 tpsInterpolation <- function(inputWeather, inputColumn, inputDate,
                              inputLocations, minValue, maxValue){
   interpolateDf <- inputWeather %>%
@@ -284,6 +314,29 @@ tpsInterpolation <- function(inputWeather, inputColumn, inputDate,
   return(predTPSDf)
 }
 
+'Title:
+Indicator kriging interpolation
+
+Description:
+The indicator kriging method is a kriging based method to interpolate binary
+categorical data. The indicator kriging method builds up on the ordinary kriging
+method. The method calculates the variogram based on the categorical data and
+models the spatial covariance based on the automap function autofitVariogram
+method. The build up kriging method uses a formula for ordinary kriging to predict
+the probability per input location.
+
+Input:
+  - inputWeather: Dataframe consisting of weather dataframe with station location
+  - inputColumn: Column in inputWeather dataframe for which the column needs to
+    be interpolated
+  - inputLocations: Sf dataframe consisting with centroid locations based on 
+    hexagon
+  - inputDate: Date for which the weather variable needs to be interpolated
+
+Output:
+  - krigingPred: Sf Dataframe consisting of predicted category, inputDate, hexagon
+    ID and centroid column
+'
 indicatorKriging <- function(inputWeather, inputColumn, inputLocations,
                              inputDate){
   formula <- paste(inputColumn, '~', '1')
@@ -326,7 +379,10 @@ indicatorKriging <- function(inputWeather, inputColumn, inputLocations,
                                 model=interpolateVariogram,
                                 debug.level = 0)
     krigingPred <- sf::st_as_sf(krigingPred)
-    krigingPred$DATE <- '2000-01-01'
+    if (unique(is.na(krigingPred$var1.pred))){
+      krigingPred$var1.pred <- 0
+    }
+    krigingPred$DATE <- inputDate
     krigingPred$ID <- inputLocations$ID
     krigingPred$var1.pred <- pmin(1, krigingPred$var1.pred)
     krigingPred$var1.pred <- pmax(0, krigingPred$var1.pred)
@@ -815,16 +871,14 @@ wtColumns <- weather %>%
   dplyr::select(contains('WT')) %>%
   colnames()
 # iterate over category columns
-for (wtColumn in wtColumns) {
+for (wtColumn in wtColumns[15:19]) {
   print(wtColumn)
   # perform indicator kriging
   wtPredList <- pblapply(dateSequence,
-                         function(x) indicatorKriging(weather, 'WT01', hexGridCentroidsSf,
+                         function(x) indicatorKriging(weather, wtColumn, hexGridCentroidsSf,
                                                       x))
   # bind list of dataframes to single dataframe
   wtPredDf <- data.table::rbindlist(wtPredList)
   # save dataframe in R Data Structure
   saveRDS(wtPredDf, paste0('data/interpolation/',wtColumn, '.rds'))
 }
-
-
