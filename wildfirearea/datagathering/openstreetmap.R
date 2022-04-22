@@ -18,7 +18,7 @@ osmApi <- function(timeSpan, osmKey, osmValue, osmDate) {
     # transform object to simple feature object
     osmdata_sf()
   
-  fileName <- paste0(folderName, '/', value, year, '.osm')
+  fileName <- paste0(folderName, '/', value, year, '.rds')
   saveRDS(osmObject, file = fileName)
   # return value of query
 }
@@ -30,7 +30,7 @@ californiaBbox <- sf::st_bbox(californiaBoundary)
 osmSettings <- read_excel('data/openstreetmap/OSMSettings2010.xlsx')
 osmSettings <- osmSettings %>%
   dplyr::filter(grepl('2016|2017|2018|2019|2020|2021', osmDate))
-osmSettings <- osmSettings[37:198,]
+osmSettings <- osmSettings[96:198,]
 apply(osmSettings, 1,
-      function(x) osmApi(900, x['osmKey'], x['osmValue'], x['osmDate']))
+      function(x) osmApi(1200, x['osmKey'], x['osmValue'], x['osmDate']))
 

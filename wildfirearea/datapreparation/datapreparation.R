@@ -20,6 +20,41 @@ library(tibble)
 library(tidyr)
 
 # Script functions -------------------------------------------------------------
+'Title:
+Wind Direction function
+
+Description:
+Convert the wind direction degree value to wind direction category based on
+value threshold.
+
+Input:
+  - valueItem: value with wind direction in degree
+
+Output:
+  - return of value with wind direction as category'
+windDirection <- function(valueItem){
+  case_when(
+    valueItem > 11.25 & valueItem <= 33.75 ~ 'NNE',
+    valueItem > 33.75 & valueItem <= 56.25 ~ 'NE',
+    valueItem > 56.25 & valueItem <= 78.75 ~ 'ENE',
+    valueItem > 78.75 & valueItem <= 101.25 ~ 'E',
+    valueItem > 101.25 & valueItem <= 123.75 ~ 'ESE',
+    valueItem > 123.75 & valueItem <= 146.25 ~ 'SE',
+    valueItem > 146.25 & valueItem <= 168.75 ~ 'SSE',
+    valueItem > 168.75 & valueItem <= 191.25 ~ 'S',
+    valueItem > 191.25 & valueItem <= 213.75 ~ 'SSW',
+    valueItem > 213.75 & valueItem <= 236.25 ~ 'SW',
+    valueItem > 236.25 & valueItem <= 258.75 ~ 'WSW',
+    valueItem > 258.75 & valueItem <= 281.25 ~ 'W',
+    valueItem > 281.25 & valueItem <= 303.75 ~ 'WNW',
+    valueItem > 303.75 & valueItem <= 326.25 ~ 'NW',
+    valueItem > 326.25 & valueItem <= 348.75 ~ 'NNW',
+    valueItem > 348.75 ~ 'N',
+    valueItem <= 11.25  ~ 'N',
+    TRUE ~ NA_character_
+  )
+}
+
 '
 Title:
 Dynamic kriging function
@@ -125,7 +160,21 @@ RMSE <- function(residuals){
 'Title:
 Validation kriging formula
 
-Description:'
+Description:
+The validation kriging formula function performs a LOOCV to determine which
+formula combination performs the best in regard to the input date and returns
+RMSE for the specific date and the different formula combinations
+
+Input:
+  - inputWeather: Dataframe consisting of weather dataframe with station location
+  - inputColumn: Column in inputWeather dataframe for which the column needs to
+    be interpolated
+  - inputDate: Date for which the weather variable needs to be interpolated
+  - minValue: minimum value for value series
+  - maxValue: maximum value for value series
+
+Output:
+  - krigeRMSEDf: Dataframe consisting of date, formula and rmse column'
 krigeValidation <- function(inputWeather, inputColumn, inputDate,
                             minValue, maxValue){
   interpolateDf <- inputWeather %>%
@@ -182,10 +231,22 @@ krigeValidation <- function(inputWeather, inputColumn, inputDate,
 }
 
 'Title:
+Inverse distance weighting function
 
 Description:
+The inverse distance weighting (IDW) function interpolates a value series based
+on the IDW interpolation. The function optimizes the inverse distance power (idp)
+performing a LOOCV with returning a RMSE for the idp. The idp with the minimum 
+RMSE is used for the IDW interpolation.
 
 Input:
+  - inputWeather: Dataframe consisting of weather dataframe with station location
+  - inputColumn: Column in inputWeather dataframe for which the column needs to
+    be interpolated
+  - inputDate: Date for which the weather variable needs to be interpolated
+  - minValue: minimum value for value series
+  - maxValue: maximum value for value series
+
 
 Output:
 
@@ -401,13 +462,13 @@ prjLonLat <- 'EPSG:4269'
 # determination if data should be aggregated before interpolation
 aggMonth <- TRUE
 # create sequence of dates in time range of 2000 to 2015 depending on aggregation
-if (aggMonth == TRUE) {
-  dateSequence <- seq(from=as.Date('2000-01-01'), to=as.Date('2015-12-31'), by='months')
-} else {
-  dateSequence <- seq(from=as.Date('2000-01-01'), to=as.Date('2015-12-31'), by='days')
-}
+
+dailyDateSequence <- seq(from=as.Date('2010-01-01'), to=as.Date('2021-12-31'), by='days')
+
+monthlyDateSequence <- seq(from=as.Date('2010-01-01'), to=as.Date('2021-12-31'), by='months')
+
 # valid formula elements used for kriging selection
-formulaElements <- c('LONGITUDE + LATITUDE', 'ELEVATION', 'coastDistance')
+formulaElements <- c('LONGITUDE + LATITUDE', 'ELEVATION', 'COASTDISTANCE')
 
 # Grid creation ----------------------------------------------------------------
 'Grid consisting of hexagonal grid cells. '
@@ -417,7 +478,7 @@ californiaSP <- sf::as_Spatial(californiaBoundary)
 
 ## setup hexagonal grid --------------------------------------------------------
 # define area in square meters
-cellArea <- 40000000
+cellArea <- 20000000
 # calculate cell distance
 'calculation of cellsize based on cellsize argument of spsample
 which defines the distance between the center of consecutives hexagons'
@@ -448,18 +509,42 @@ californiaCoastLine <- st_transform(californiaCoastLine, prjLonLat)
 # Elevation --------------------------------------------------------------------
 ## read data -------------------------------------------------------------------
 elevationRaster <- raster::raster('data/elevation/californiaElevation.tif')
+
+"## Terrain ---------------------------------------------------------------------
+# calculate terrain statistics based from the given elevation raster
+terrainList <- raster::terrain(elevationRaster, opt=c('slope', 'aspect', 'flowdir'),
+                               unit = 'degrees', neighbors=8, progress='text',
+                               filename='data/elevation/terrain.grd')
+terrainList <- raster::stack('data/elevation/terrain.tif', bands=c(1, 2, 6))
+names(terrainList) <- c('SLOPE', 'ASPECT', 'FLOWDIR')"
 ## Elevation grid -----------------------------------
 # extract elevation values by aggregating average weighting based on area present
 # in polygon
 elevationGridValues <- exactextractr::exact_extract(elevationRaster, hexGrid, weights = 'area',
                                      fun='weighted_mean', progress=TRUE)
 
+
+# extract terrain values from terrain raster by aggregating average weighting
+# based on area present in polygon
+"terrainGridValues <- exactextractr::exact_extract(terrainList, hexGrid, weights = 'area',
+                                                  fun='weighted_mean', progress=TRUE,
+                                                  stack_apply=TRUE)
+"
 # transform SpatialPolygon object to SpatialPolygonDataframe object
 # extract Grid ID for object merge
 pid <- sapply(slot(hexGrid, "polygons"), function(x) slot(x, "ID"))
 # merge SpatialPolygon with DataFrame
 elevationGridValues <- data.frame('ELEVATION' = elevationGridValues, row.names = pid)
+
+# merge terrain dataframe with IDs
+"terrainGridValues <- data.frame('SLOPE' = terrainGridValues$weighted_mean.SLOPE,
+                                    'ASPECT' = terrainGridValues$weighted_mean.ASPECT,
+                                    'FLOWDIR' = terrainGridValues$weighted_mean.FLOWDIR,
+                                    row.names = pid)"
+# merge elevation and terrain value based on common index
+"elevationGridValues <- cbind(elevationGridValues, terrainGridValues)"
 # merge elevationGridValues vector with spatial polygons object
+
 hexGridElevation <- sp::SpatialPolygonsDataFrame(hexGrid, elevationGridValues)
 
 # calculate distance to shore line
@@ -480,16 +565,18 @@ hexGridElevationSf <- hexGridElevationSf %>%
   left_join(gridShoreDf, by='ID') %>%
   dplyr::select(-ID)
 
+
 # weather ----------------------------------------------------------------------
 ## read data -------------------------------------------------------------------
 weather <- data.table::fread('data/weather/weather.csv')
+weather <- weather %>%
+  filter(DATE >= '2010-01-01')
 weather <- as.data.frame(weather)
 'Prepare weather dataset based upon the non aggregated daily weather dataset
 and the monthly aggregated weather dataset before the interpolation'
 
-## Daily weather ---------------------------------------------------------------
-### Data Preparation -----------------------------------------------------------
-#### define variable quality rules 
+## Data Preparation -----------------------------------------------------------
+### define variable quality rules 
 
 # select all  weather variable columns
 weatherVariables <- weather %>%
@@ -525,7 +612,7 @@ for (column in weatherVariables) {
   # sort values ascending
   columnDate <- columnDate[order(columnDate)]
   # append status if date sequence is identical to column date
-  validWeatherColumns <- append(validWeatherColumns, identical(dateSequence, columnDate))
+  validWeatherColumns <- append(validWeatherColumns, identical(dailyDateSequence, columnDate))
 }
 
 # create attributes for weather related variables
@@ -535,7 +622,12 @@ validWeatherColumns <- c(weatherVariables[validWeatherColumns],validWeatherAttri
 # select weather column of variables covering all dates
 weather <- weather %>%
   dplyr::select(all_of(validWeatherColumns))
-## Monthly weather -------------------------------------------------------------
+
+# replace wind degrees with categories containing wind direction
+weather <- weather %>%
+  mutate_at(c('WDF2', 'WDF5'), windDirection)
+
+### Monthly weather -------------------------------------------------------------
 if (aggMonth == TRUE) {
   print('Monthly aggregation')
   minAgg <- weather %>%
@@ -554,14 +646,32 @@ if (aggMonth == TRUE) {
   meanAgg <- weather %>%
     mutate(DATE = floor_date(DATE, 'month')) %>%
     group_by(STATION, DATE, LONGITUDE, LATITUDE, ELEVATION) %>%
-    summarise_at(c('AWND', 'EVAP', 'PRCP', 'SNOW', 'SNWD', 'TAVG', 'TOBS', 'WDF2',
-                   'WDF5', 'WDMV', 'WESD', 'WSF2', 'WSF5'), mean)
+    summarise_at(c('AWND', 'EVAP', 'PRCP', 'SNOW', 'SNWD', 'TAVG', 'TOBS',
+                   'WDMV', 'WESD', 'WSF2', 'WSF5', 'WESF'), mean)
+  
+  countWDF2 <- weather %>%
+    mutate(DATE = floor_date(DATE, 'month')) %>%
+    group_by(STATION, DATE, LONGITUDE, LATITUDE, ELEVATION, WDF2) %>%
+    summarise(COUNT = n()) %>%
+    ungroup() %>%
+    pivot_wider(names_from = WDF2, values_from = COUNT, names_prefix = 'WDF2_') %>%
+    select(-WDF2_NA)
+  
+  countWDF5 <- weather %>%
+    mutate(DATE = floor_date(DATE, 'month')) %>%
+    group_by(STATION, DATE, LONGITUDE, LATITUDE, ELEVATION, WDF5) %>%
+    summarise(COUNT = n()) %>%
+    ungroup() %>%
+    pivot_wider(names_from = WDF5, values_from = COUNT, names_prefix = 'WDF5_') %>%
+    select(-WDF5_NA)
+  
   
   weather <- minAgg %>%
     left_join(maxAgg) %>%
     left_join(meanAgg) %>%
+    left_join(countWDF2) %>%
+    left_join(countWDF5) %>%
     dplyr::ungroup()
-  
 }
 ### Feature Creation -----------------------------------------------------------
 # calculation shore line distance
@@ -592,6 +702,34 @@ hexGridCentroidsSf <- hexGridCentroidsSf %>%
   rownames_to_column('ID') %>%
   mutate(ID = paste0('ID', ID)) %>%
   st_join(hexGridElevationSf)
+
+if (aggMonth == TRUE) {
+  interpolateDateSequence <- monthlyDateSequence
+} else{
+  interpolateDateSequence <- dailyDateSequence
+}
+
+#### Indicator Kriging Interpolation -------------------------------------------
+# extract columns that will be used for Indicator Kriging
+indicatorColumns <- weather %>%
+  dplyr::select((contains('WT') | contains('WV') & !contains('ATTRIBUTES'))) %>%
+  colnames()
+# iterate over eligible columns for indicator kriging
+for (indicatorColumn in indicatorColumns[4:23]) {
+  print(indicatorColumn)
+  # perform indicator kriging
+  wtPredList <- pblapply(interpolateDateSequence,
+                         function(x) indicatorKriging(weather, indicatorColumn, hexGridCentroidsSf,
+                                                      x))
+  # bind list of dataframes to single dataframe
+  wtPredDf <- data.table::rbindlist(wtPredList)
+  # save dataframe in R Data Structure
+  saveRDS(wtPredDf, paste0('data/interpolation/',indicatorColumn, '.rds'))
+}
+
+#### Kriging Interpolation -----------------------------------------------------
+
+
 #### Temperature ---------------------------------------------------------------
 # limit values for temperature
 maxTemperature <- 56.67
@@ -882,3 +1020,9 @@ for (wtColumn in wtColumns[15:19]) {
   # save dataframe in R Data Structure
   saveRDS(wtPredDf, paste0('data/interpolation/',wtColumn, '.rds'))
 }
+
+# Test area --------------------------------------------------------------------
+
+
+
+  
