@@ -12,7 +12,7 @@ library(future.apply)
 library(gstat)
 library(lubridate)
 library(osmdata)
-library(pbapply)
+library(pbmcapply)
 library(raster)
 library(sf)
 library(sp)
@@ -97,7 +97,7 @@ krigingFunction <- function(inputLocations, inputWeather, inputFormula,
     # select necessary columns for the interpolation
     dplyr::select(STATION, LATITUDE,
                   LONGITUDE, ELEVATION, DATE,
-                  !!as.symbol(inputColumn), coastDistance) %>%
+                  !!as.symbol(inputColumn), COASTDISTANCE) %>%
     # filter maximum Values out of column
     dplyr::filter(!!as.symbol(inputColumn) >= minValue & !!as.symbol(inputColumn) <= maxValue) %>%
     # filter needed date
@@ -181,7 +181,7 @@ krigeValidation <- function(inputWeather, inputColumn, inputDate,
     # select necessary columns for the interpolation
     dplyr::select(STATION, LATITUDE,
                   LONGITUDE, ELEVATION, DATE,
-                  !!as.symbol(inputColumn), coastDistance) %>%
+                  !!as.symbol(inputColumn), COASTDISTANCE) %>%
     # filter maximum Values out of column
     dplyr::filter(!!as.symbol(inputColumn) >= minValue & !!as.symbol(inputColumn) <= maxValue) %>%
     # filter needed date
@@ -304,9 +304,9 @@ idwFunction <- function(inputDf, inputColumn, inputDate,
                         debug.level = 0)
   idwPredict <- idwPredict %>%
     dplyr::select(var1.pred, geometry) %>%
-    dplyr::mutate(DATE = inputDate) %>%
+    dplyr::mutate(DATE = inputDate, ID = inputLocations$ID) %>%
     dplyr::rename(!!inputColumn := var1.pred) %>%
-    tibble::rownames_to_column('ID')
+    dplyr::select(!!as.symbol(inputColumn), DATE, ID, geometry)
   
   return(idwPredict)
 }
@@ -339,7 +339,7 @@ tpsInterpolation <- function(inputWeather, inputColumn, inputDate,
     # select necessary columns for the interpolation
     dplyr::select(STATION, LATITUDE,
                   LONGITUDE, ELEVATION, DATE,
-                  !!as.symbol(inputColumn), coastDistance) %>%
+                  !!as.symbol(inputColumn), COASTDISTANCE) %>%
     # filter maximum Values out of column
     dplyr::filter(!!as.symbol(inputColumn) >= minValue & !!as.symbol(inputColumn) <= maxValue) %>%
     # filter needed date
@@ -407,7 +407,7 @@ indicatorKriging <- function(inputWeather, inputColumn, inputLocations,
     # select necessary columns for the interpolation
     dplyr::select(STATION, LATITUDE,
                   LONGITUDE, ELEVATION, DATE,
-                  !!as.symbol(inputColumn), coastDistance) %>%
+                  !!as.symbol(inputColumn), COASTDISTANCE) %>%
     # filter maximum & minimum Values out of column (min: 0, max: 1)
     dplyr::filter(!!as.symbol(inputColumn) >= 0 & !!as.symbol(inputColumn) <= 1) %>%
     # filter needed date
@@ -467,8 +467,42 @@ dailyDateSequence <- seq(from=as.Date('2010-01-01'), to=as.Date('2021-12-31'), b
 
 monthlyDateSequence <- seq(from=as.Date('2010-01-01'), to=as.Date('2021-12-31'), by='months')
 
+
+## Interpolation parameters ----------------------------------------------------
 # valid formula elements used for kriging selection
 formulaElements <- c('LONGITUDE + LATITUDE', 'ELEVATION', 'COASTDISTANCE')
+# date sequence for interpolation
+if (aggMonth == TRUE) {
+  interpolateDateSequence <- monthlyDateSequence
+} else{
+  interpolateDateSequence <- dailyDateSequence
+}
+# date sequence for kriging validation
+set.seed(15)
+sampleDate <- sort(sample(interpolateDateSequence,
+                          size = round(0.2*length(interpolateDateSequence))))
+
+# determine cores to be used for multiprocessing
+
+if (.Platform$OS.type == "windows") {
+  warning('Due to Windows as OS no multiprocessing possible')
+  cores <- 1
+} else {
+  cores <- detectCores() - 2
+}
+### Temperature limit ----------------------------------------------------------
+maxTemperature <- 56.67
+minTemperature <- -42.78
+
+### Precipitation limit --------------------------------------------------------
+minPrcp <- 0
+maxPrcp <- 656.08
+
+### SNOW -----------------------------------------------------------------------
+minSNOW <- 0
+maxSNOW <- 1701.8
+minSNWD <- 0
+maxSNWD <- 11455.4
 
 # Grid creation ----------------------------------------------------------------
 'Grid consisting of hexagonal grid cells. '
@@ -556,7 +590,7 @@ gridShoreDistance <- sf::st_distance(hexGridCentroidsSf, californiaCoastLine)
 # extract minimum distance to shore by each grid centroid
 gridShoreDistance <- apply(gridShoreDistance, 1, min)
 # build Data Frame with column ID and coastDistance
-gridShoreDf <- data.frame(ID = pid, coastDistance = gridShoreDistance)
+gridShoreDf <- data.frame(ID = pid, COASTDISTANCE = gridShoreDistance)
 # convert hexGridElevation SpatialPolygon object to SF object
 hexGridElevationSf <- sf::st_as_sf(hexGridElevation)
 # join data
@@ -655,7 +689,7 @@ if (aggMonth == TRUE) {
     summarise(COUNT = n()) %>%
     ungroup() %>%
     pivot_wider(names_from = WDF2, values_from = COUNT, names_prefix = 'WDF2_') %>%
-    select(-WDF2_NA)
+    dplyr::select(-WDF2_NA)
   
   countWDF5 <- weather %>%
     mutate(DATE = floor_date(DATE, 'month')) %>%
@@ -663,7 +697,7 @@ if (aggMonth == TRUE) {
     summarise(COUNT = n()) %>%
     ungroup() %>%
     pivot_wider(names_from = WDF5, values_from = COUNT, names_prefix = 'WDF5_') %>%
-    select(-WDF5_NA)
+    dplyr::select(-WDF5_NA)
   
   
   weather <- minAgg %>%
@@ -685,7 +719,7 @@ stationDf <- sf::st_as_sf(stationDf, coords=c('LONGITUDE', 'LATITUDE'),
 
 
 coastlineDistance <- st_distance(stationDf, californiaCoastLine)
-stationDf$coastDistance <- apply(coastlineDistance, 1, min)
+stationDf$COASTDISTANCE <- apply(coastlineDistance, 1, min)
 
 weather <- weather %>%
   left_join(stationDf, by=c('STATION', 'ELEVATION'))
@@ -703,11 +737,7 @@ hexGridCentroidsSf <- hexGridCentroidsSf %>%
   mutate(ID = paste0('ID', ID)) %>%
   st_join(hexGridElevationSf)
 
-if (aggMonth == TRUE) {
-  interpolateDateSequence <- monthlyDateSequence
-} else{
-  interpolateDateSequence <- dailyDateSequence
-}
+
 
 #### Indicator Kriging Interpolation -------------------------------------------
 # extract columns that will be used for Indicator Kriging
@@ -715,12 +745,13 @@ indicatorColumns <- weather %>%
   dplyr::select((contains('WT') | contains('WV') & !contains('ATTRIBUTES'))) %>%
   colnames()
 # iterate over eligible columns for indicator kriging
-for (indicatorColumn in indicatorColumns[4:23]) {
+for (indicatorColumn in indicatorColumns) {
   print(indicatorColumn)
   # perform indicator kriging
-  wtPredList <- pblapply(interpolateDateSequence,
+  wtPredList <- pbmclapply(interpolateDateSequence,
                          function(x) indicatorKriging(weather, indicatorColumn, hexGridCentroidsSf,
-                                                      x))
+                                                      x),
+                         mc.cores=cores)
   # bind list of dataframes to single dataframe
   wtPredDf <- data.table::rbindlist(wtPredList)
   # save dataframe in R Data Structure
@@ -728,12 +759,96 @@ for (indicatorColumn in indicatorColumns[4:23]) {
 }
 
 #### Kriging Interpolation -----------------------------------------------------
+# create kriging dataframe to specify parameters
+krigingDf <- data.frame('column' = c('TMAX', 'TMIN', 'TAVG', 'TOBS',
+                                     'PRCP', 'SNOW', 'SNWD', 'MNPN',
+                                     'MXPN', 'WESD'),
+                        'minValue' = c(minTemperature, minTemperature, minTemperature, minTemperature,
+                                       minPrcp, minSNOW, minSNWD, minTemperature,
+                                       minTemperature, minSNWD),
+                        'maxValue' = c(maxTemperature, maxTemperature, maxTemperature, maxTemperature,
+                                       maxPrcp, minSNOW, minSNWD, minTemperature,
+                                       maxTemperature, minSNWD))
+
+# iterate over kriging dataframe rows to perform interpolation
+for (row in 1:nrow(krigingDf)) {
+  # extract single row from dataframe to get necessary values
+  rowValues <- krigingDf[row, ]
+  # extract columns as vector
+  interpolateColumn <- rowValues %>%
+    dplyr::pull('column')
+  valueMin <- rowValues %>%
+    dplyr::pull('minValue')
+  valueMax <- rowValues %>%
+    dplyr::pull('maxValue')
+  print(interpolateColumn)
+  print('Validation started')
+  # start validation to determine best kriging formula
+  validationList <- pbmclapply(sampleDate,
+                             function(x) krigeValidation(weather, interpolateColumn, x,
+                                                         valueMin, valueMax),
+                             mc.cores=cores)
+  # transform list of dataframes to single dataframe
+  validationDf <- data.table::rbindlist(validationList)
+  # save RDS with single validation dataframe
+  saveRDS(validationDf, paste0('data/interpolation/validation/', interpolateColumn, '.rds'))
+  # aggregate RMSE values to extract most optimal kriging formula
+  krigingFormula <- validationDf %>%
+    group_by(formula) %>%
+    summarise(meanRMSE = mean(rmse)) %>%
+    slice(which.min(meanRMSE)) %>%
+    pull(formula)
+  print('Kriging started')
+  # perform kriging based on column and minimum and maximum values
+  krigingPredList <- pbmclapply(interpolateDateSequence,
+                              function(x) krigingFunction(hexGridCentroidsSf, weather, krigingFormula,
+                                                          interpolateColumn, x,
+                                                          valueMin, valueMax),
+                              mc.cores=cores)
+  # bind list of dataframes to single dataframe
+  krigingPredDf <- data.table::rbindlist(krigingPredList)
+  # extract dates with invalid values and construct dataframe containing columns
+  # DATE, ID and INDEX
+  invalidCell <- krigingPredDf %>%
+    tibble::rownames_to_column('INDEX') %>%
+    dplyr::filter(!!as.symbol(interpolateColumn) < valueMin | !!as.symbol(interpolateColumn)> valueMax) %>%
+    mutate(INDEX = as.integer(INDEX)) %>%
+    dplyr::select(DATE, ID, INDEX)
+  print('IDW started')
+  # extract dates for which the inverse distance weighting needs to be calculated
+  idwDate <- unique(invalidCell$DATE)
+  # perform idw interpolation for invalid values
+  idwPredList <- pbmclapply(idwDate,
+                          function(x) idwFunction(weather, interpolateColumn, x,
+                                                  hexGridCentroidsSf, paste0(interpolateColumn, ' ~ 1'),
+                                                  valueMin ,valueMax),
+                          mc.cores = cores)
+  # transform list of dataframes to single dataframe
+  idwPredDf <- data.table::rbindlist(idwPredList)
+  # join kriging dataframe with idw dataframe to interpolate dataframe
+  interpolateDf <- krigingPredDf %>%
+    left_join(idwPredDf, by=c('ID', 'DATE'))
+  # assign new column names after the join to variables for easier indexing
+  interpolateX <- paste0(interpolateColumn, '.x')
+  interpolateY <- paste0(interpolateColumn, '.y')
+  # extract index of invalid values from the invalidCell dataframe
+  invalidCellIndex <- invalidCell %>%
+    dplyr::pull(INDEX)
+  # replace values from those indeces where invalid values are present
+  interpolateDf[invalidCellIndex][[interpolateX]] <- interpolateDf[invalidCellIndex][[interpolateY]]
+  # restructure interpolation dataframe 
+  interpolateDf <- interpolateDf %>%
+    dplyr::rename(!!interpolateColumn := !!interpolateX, 'geometry' = 'geometry.x') %>%
+    dplyr::select(!!as.symbol(interpolateColumn), DATE, ID, geometry)
+  # store interpolation dataframe into RDS structure
+  saveRDS(interpolateDf, paste0('data/interpolation/', interpolateColumn, '.rds'))
+}
+
 
 
 #### Temperature ---------------------------------------------------------------
 # limit values for temperature
-maxTemperature <- 56.67
-minTemperature <- -42.78
+
 
 # TAVG
 # define interpolation formula
@@ -834,9 +949,7 @@ saveRDS(tobsDf, 'data/interpolation/tobs.rds')
 
 
 #### Precipitation -------------------------------------------------------------
-# PRCP
-minPrcp <- 0
-maxPrcp <- 656.08
+
 
 # validation for best kriging formula
 prcpValidation <- pblapply(sampleDate,
