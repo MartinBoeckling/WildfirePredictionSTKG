@@ -273,7 +273,7 @@ idwFunction <- function(inputDf, inputColumn, inputDate,
   interpolateSf <- sf::st_as_sf(interpolateDf, coords=c('LONGITUDE', 'LATITUDE'),
                            crs=prjLonLat, remove = FALSE)
   
-  idpSeq <- c(0.1, seq(0.5, 4, 0.5))
+  idpSeq <- c(0.1, seq(0.5, 5, 0.5))
   
   cvGrid <- expand.grid(IDP = idpSeq)
   
@@ -480,7 +480,7 @@ if (aggMonth == TRUE) {
 # date sequence for kriging validation
 set.seed(15)
 sampleDate <- sort(sample(interpolateDateSequence,
-                          size = round(0.2*length(interpolateDateSequence))))
+                          size = round(0.5*length(interpolateDateSequence))))
 
 # determine cores to be used for multiprocessing
 
@@ -519,6 +519,7 @@ which defines the distance between the center of consecutives hexagons'
 cellDistance <- 2 * sqrt(cellArea/((3*sqrt(3)/2))) * sqrt(3)/2
 
 # calculate center points of hexagons in spatial area
+set.seed(15)
 hexGridCentroids <- sp::spsample(californiaSP, type='hexagonal', cellsize=cellDistance)
 # create hexagonal polygons based on calculated centroids
 hexGrid <- sp::HexPoints2SpatialPolygons(hexGridCentroids, dx = cellDistance)
@@ -737,6 +738,58 @@ hexGridCentroidsSf <- hexGridCentroidsSf %>%
   mutate(ID = paste0('ID', ID)) %>%
   st_join(hexGridElevationSf)
 
+# create interpolation dataframe
+interpolateDf <- data.frame('column' = c('TMAX', 'TMIN', 'TAVG', 'TOBS',
+                                         'PRCP', 'SNOW', 'SNWD', 'MNPN',
+                                         'MXPN', 'WESD'),
+                            'minValue' = c(minTemperature, minTemperature, minTemperature, minTemperature,
+                                           minPrcp, minSNOW, minSNWD, minTemperature,
+                                           minTemperature, minSNWD),
+                            'maxValue' = c(maxTemperature, maxTemperature, maxTemperature, maxTemperature,
+                                           maxPrcp, minSNOW, minSNWD, minTemperature,
+                                           maxTemperature, minSNWD))
+
+wdfColumns <- weather %>%
+  dplyr::select(contains('WDF') & !contains('ATTRIBUTES')) %>%
+  colnames()
+
+wdfDataframe <- data.frame('column' = wdfColumns,
+                           'minValue' = 0,
+                           'maxValue' = 31)
+
+interpolateDf <- rbind(interpolateDf, wdfDataframe)
+
+#### Inverse Distance Weighting ------------------------------------------------
+# iterate over interpolate dataframe
+for (row in 1:nrow(interpolateDf)) {
+  # extract row of dataframe
+  rowValues <- interpolateDf[row, ]
+  # extract column that is getting interpolated
+  interpolateColumn <- rowValues %>%
+    dplyr::pull('column')
+  # extract minimum value associated to interpolate column
+  valueMin <- rowValues %>%
+    dplyr::pull('minValue')
+  # extract maximum value associated to interpolate column
+  valueMax <- rowValues %>%
+    dplyr::pull('maxValue')
+  # print iteration information
+  print(paste0(interpolateColumn, ' - ', row, ' of ', nrow(interpolateDf), ' rows '))
+  # perform IDW interpolation for each date sequence which returns a list of dataframes
+  idwPredList <- pbmclapply(interpolateDateSequence,
+                            function(x) idwFunction(weather, interpolateColumn, x,
+                                                    hexGridCentroidsSf, paste0(interpolateColumn, ' ~ 1'),
+                                                    valueMin ,valueMax),
+                            mc.cores = cores)
+  # bind list of dataframes to single dataframe
+  idwPredDf <- data.table::rbindlist(idwPredList)
+  # store interpolation dataframe as an R datastructure with the name of the 
+  # interpolation column
+  saveRDS(idwPredDf, paste0('data/interpolation/idw/', interpolateColumn, '.rds'))
+  # remove prediction list and dataframe
+  rm(idwPredList, idwPredDf)
+}
+
 
 
 #### Indicator Kriging Interpolation -------------------------------------------
@@ -844,295 +897,68 @@ for (row in 1:nrow(krigingDf)) {
   saveRDS(interpolateDf, paste0('data/interpolation/', interpolateColumn, '.rds'))
 }
 
+# Spatial aggregation ----------------------------------------------------------
+# transform hexGrid to Sf object
+hexGridSf <- sf::st_as_sf(hexGrid, crs=prjLonLat)
+# join hexGrid with Centroid Dataframe
+hexGridSf <- hexGridSf %>%
+  sf::st_join(hexGridCentroidsSf)
+## Landscape -------------------------------------------------------------------
+# read data files
+landscapeFiles <- list.files(path = 'data/landCover', pattern = '.tif$', full.names = TRUE)
+# create raster stack for all landscape files
+landscapeData <- raster::stack(landscapeFiles)
 
+# create legend and class
+landscapeLegend <- data.frame('value' = c(0, 11, 12, 21, 22, 23, 24, 31, 41, 42, 43,
+                                          51, 52, 71, 72, 73, 74, 81, 82, 90, 95),
+                              'mainClass' = c('Unclassified', 'Water', 'Water',
+                                              'Developed', 'Developed', 'Developed',
+                                              'Developed', 'Barren', 'Forest',
+                                              'Forest', 'Forest', 'Shrubland',
+                                              'Shrubland', 'Herbaceous', 'Herbaceous',
+                                              'Herbaceous', 'Herbaceous', 'Planted/Cultivated	',
+                                              'Planted/Cultivated	', 'Wetlands', 'Wetlands'),
+                              'subClass' = c('Unclassified', 'Open Water', 'Perennial Ice/Snow',
+                                             'Developed, Open Space', 'Developed, Low Intensity',
+                                             'Developed, Medium Intensity', 'Developed High Intensity',
+                                             'Barren Land (Rock/Sand/Clay)', 'Deciduous Forest',
+                                             'Evergreen Forest', 'Mixed Forest', 'Dwarf Scrub',
+                                             'Shrub/Scrub', 'Grassland/Herbaceous', 'Sedge/Herbaceous',
+                                             'Lichens', 'Moss', 'Pasture/Hay', 'Cultivated Crops',
+                                             'Woody Wetlands', 'Emergent Herbaceous Wetlands'))
 
-#### Temperature ---------------------------------------------------------------
-# limit values for temperature
-
-
-# TAVG
-# define interpolation formula
-# validation for best kriging formula
-tavgValidation <- pblapply(sampleDate,
-                           function(x) krigeValidation(weather, 'TAVG', x,
-                                                       minTemperature, maxTemperature))
-# concatenate list of dataframes to one dataframe
-tavgValidationDf <- data.table::rbindlist(tavgValidation)
-# store dataframe into R data structure
-saveRDS(tavgValidationDf, 'data/interpolation/validation/tavg.rds')
-# kriging interpolation
-# extract kriging formula with minimum mean RMSE value
-tavgFormula <- tavgValidationDf %>%
-  group_by(formula) %>%
-  summarise(meanRMSE = mean(rmse)) %>%
-  slice(which.min(meanRMSE)) %>%
-  pull(formula)
-
-tavgPredList <- pblapply(dateSequence,
-                        function(x) krigingFunction(hexGridCentroidsSf, weather, tavgFormula,
-                                                    'TAVG', x,
-                                                    minTemperature, maxTemperature))
-tavgDf <- data.table::rbindlist(tavgPredList)
-saveRDS(tavgDf, 'data/interpolation/tavg.rds')
-
-# TMAX
-# validation for best kriging formula
-tmaxValidation <- pblapply(sampleDate,
-                           function(x) krigeValidation(weather, 'TMAX', x,
-                                                       minTemperature, maxTemperature))
-# concatenate list of dataframes to one dataframe
-tmaxValidationDf <- data.table::rbindlist(tmaxValidation)
-# store dataframe into R data structure
-saveRDS(tmaxValidationDf, 'data/interpolation/validation/tmax.rds')
-# kriging interpolation
-# extract kriging formula with minimum mean RMSE value
-tmaxFormula <- tmaxValidationDf %>%
-  group_by(formula) %>%
-  summarise(meanRMSE = mean(rmse)) %>%
-  slice(which.min(meanRMSE)) %>%
-  pull(formula)
-
-tmaxPredList <- pblapply(dateSequence,
-                         function(x) krigingFunction(hexGridCentroidsSf, weather, tmaxFormula,
-                                                     'TMAX', x,
-                                                     minTemperature, maxTemperature))
-tmaxDf <- data.table::rbindlist(tmaxPredList)
-saveRDS(tmaxDf, 'data/interpolation/tmax.rds')
-
-# TMIN
-# validation for best kriging formula
-tminValidation <- pblapply(sampleDate,
-                           function(x) krigeValidation(weather, 'TMIN', x,
-                                                       minTemperature, maxTemperature))
-# concatenate list of dataframes to one dataframe
-tminValidationDf <- data.table::rbindlist(tminValidation)
-# store dataframe into R data structure
-saveRDS(tminValidationDf, 'data/interpolation/validation/tmin.rds')
-# kriging interpolation
-# extract kriging formula with minimum mean RMSE value
-tminFormula <- tminValidationDf %>%
-  group_by(formula) %>%
-  summarise(meanRMSE = mean(rmse)) %>%
-  slice(which.min(meanRMSE)) %>%
-  pull(formula)
-
-tminPredList <- pblapply(dateSequence,
-                         function(x) krigingFunction(hexGridCentroidsSf, weather, tminFormula,
-                                                     'TMIN', x, minTemperature,
-                                                     maxTemperature))
-tminDf <- data.table::rbindlist(tminPredList)
-saveRDS(tminDf, 'data/interpolation/tmin.rds')
-
-# TOBS
-# validation for best kriging formula
-tobsValidation <- pblapply(sampleDate,
-                           function(x) krigeValidation(weather, 'TOBS', x,
-                                                       minTemperature, maxTemperature))
-# concatenate list of dataframes to one dataframe
-tobsValidationDf <- data.table::rbindlist(tobsValidation)
-# store dataframe into R data structure
-saveRDS(tobsValidationDf, 'data/interpolation/validation/tobs.rds')
-# kriging interpolation
-# extract kriging formula with minimum mean RMSE value
-tobsFormula <- tobsValidationDf %>%
-  group_by(formula) %>%
-  summarise(meanRMSE = mean(rmse)) %>%
-  slice(which.min(meanRMSE)) %>%
-  pull(formula)
-
-tobsPredList <- pblapply(dateSequence,
-                         function(x) krigingFunction(hexGridCentroidsSf, weather, tobsFormula,
-                                                     'TOBS', x, minTemperature,
-                                                     maxTemperature))
-tobsDf <- data.table::rbindlist(tobsPredList)
-saveRDS(tobsDf, 'data/interpolation/tobs.rds')
-
-
-#### Precipitation -------------------------------------------------------------
-
-
-# validation for best kriging formula
-prcpValidation <- pblapply(sampleDate,
-                           function(x) krigeValidation(weather, 'PRCP', x,
-                                                       minPrcp, maxPrcp))
-# concatenate list of dataframes to one dataframe
-prcpValidationDf <- data.table::rbindlist(prcpValidation)
-# store dataframe into R data structure
-saveRDS(prcpValidationDf, 'data/interpolation/validation/prcp.rds')
-# kriging interpolation
-# extract kriging formula with minimum mean RMSE value
-prcpFormula <- prcpValidationDf %>%
-  group_by(formula) %>%
-  summarise(meanRMSE = mean(rmse)) %>%
-  slice(which.min(meanRMSE)) %>%
-  pull(formula)
-prcpPredList <- pblapply(dateSequence,
-                         function(x) krigingFunction(hexGridCentroidsSf, weather, prcpFormula,
-                                                     'PRCP', x, minPrcp,
-                                                     maxPrcp))
-prcpDf <- data.table::rbindlist(prcpPredList)
-saveRDS(prcpDf, 'data/interpolation/prcp.rds')
-
-#### Snow ----------------------------------------------------------------------
-# SNOW
-minSNOW <- 0
-maxSNOW <- 1701.8
-
-# validation for best kriging formula
-snowValidation <- pblapply(sampleDate,
-                           function(x) krigeValidation(weather, 'SNOW', x,
-                                                      minSNOW, maxSNOW))
-# concatenate list of dataframes to one dataframe
-snowValidationDf <- data.table::rbindlist(snowValidation)
-# store dataframe into R data structure
-saveRDS(snowValidationDf, 'data/interpolation/validation/snow.rds')
-
-# kriging interpolation
-# extract kriging formula with minimum mean RMSE value
-snowFormula <- snowValidationDf %>%
-  group_by(formula) %>%
-  summarise(meanRMSE = mean(rmse)) %>%
-  slice(which.min(meanRMSE)) %>%
-  pull(formula)
-# interpolate values for given date sequence
-snowPredList <- pblapply(dateSequence,
-                         function(x) krigingFunction(hexGridCentroidsSf, weather, snowFormula,
-                                                     'SNOW', x, minSNOW,
-                                                     maxSNOW))
-snowDf <- data.table::rbindlist(snowPredList)
-saveRDS(snowDf, 'data/interpolation/snow.rds')
-
-# SNWD
-minSNWD <- 0
-maxSNWD <- 11455.4
-# validation for best kriging formula
-snwdValidation <- pblapply(sampleDate,
-                           function(x) krigeValidation(weather, 'SNWD', x,
-                                                       minSNWD, maxSNWD))
-# concatenate list of dataframes to one dataframe
-snwdValidationDf <- data.table::rbindlist(snwdValidation)
-# store dataframe into R data structure
-saveRDS(snwdValidationDf, 'data/interpolation/validation/snwd.rds')
-
-# kriging interpolation
-# extract kriging formula with minimum mean RMSE value
-snwdFormula <- snwdValidationDf %>%
-  group_by(formula) %>%
-  summarise(meanRMSE = mean(rmse)) %>%
-  slice(which.min(meanRMSE)) %>%
-  pull(formula)
-# interpolate values for given date sequence
-snwdPredList <- pblapply(dateSequence,
-                         function(x) krigingFunction(hexGridCentroidsSf, weather, snwdFormula,
-                                                     'SNWD', x, minSNWD,
-                                                     maxSNWD))
-snwdDf <- data.table::rbindlist(snwdPredList)
-saveRDS(snowDf, 'data/interpolation/snwd.rds')
-
-# WESD
-# validation for best kriging formula
-wesdValidation <- pblapply(sampleDate,
-                           function(x) krigeValidation(weather, 'WESD', x,
-                                                       minSNWD, maxSNWD))
-# concatenate list of dataframes to one dataframe
-wesdValidationDf <- data.table::rbindlist(wesdValidation)
-# store dataframe into R data structure
-saveRDS(wesdValidationDf, 'data/interpolation/validation/wesd.rds')
-
-# kriging interpolation
-# extract kriging formula with minimum mean RMSE value
-wesdFormula <- wesdValidationDf %>%
-  group_by(formula) %>%
-  summarise(meanRMSE = mean(rmse)) %>%
-  slice(which.min(meanRMSE)) %>%
-  pull(formula)
-# interpolate values for given date sequence
-wesdPredList <- pblapply(dateSequence,
-                         function(x) krigingFunction(hexGridCentroidsSf, weather, wesdFormula,
-                                                     'WESD', x, minSNWD,
-                                                     maxSNWD))
-wesdDf <- data.table::rbindlist(wesdPredList)
-saveRDS(wesdDf, 'data/interpolation/wesd.rds')
-
-#### Evaporation ---------------------------------------------------------------
-# MXPN
-mxpnValidation <- pblapply(sampleDate,
-                           function(x) krigeValidation(weather, 'MXPN', x,
-                                                       minTemperature, maxTemperature))
-# concatenate list of dataframes to one dataframe
-mxpnValidationDf <- data.table::rbindlist(mxpnValidation)
-# store dataframe into R data structure
-saveRDS(mxpnValidationDf, 'data/interpolation/validation/mxpn.rds')
-
-# kriging interpolation
-# extract kriging formula with minimum mean RMSE value
-mxpnFormula <- mxpnValidationDf %>%
-  group_by(formula) %>%
-  summarise(meanRMSE = mean(rmse)) %>%
-  slice(which.min(meanRMSE)) %>%
-  pull(formula)
-# interpolate values for given date sequence
-mxpnPredList <- pblapply(dateSequence,
-                         function(x) krigingFunction(hexGridCentroidsSf, weather, mxpnFormula,
-                                                     'MXPN', x, minTemperature,
-                                                     maxTemperature))
-mxpnDf <- data.table::rbindlist(mxpnPredList)
-saveRDS(mxpnDf, 'data/interpolation/mxpn.rds')
-
-#MNPN
-mnpnValidation <- pblapply(sampleDate,
-                           function(x) krigeValidation(weather, 'MNPN', x,
-                                                       minTemperature, maxTemperature))
-# concatenate list of dataframes to one dataframe
-mnpnValidationDf <- data.table::rbindlist(mnpnValidation)
-# store dataframe into R data structure
-saveRDS(mnpnValidationDf, 'data/interpolation/validation/mnpn.rds')
-
-# kriging interpolation
-# extract kriging formula with minimum mean RMSE value
-mnpnFormula <- mnpnValidationDf %>%
-  group_by(formula) %>%
-  summarise(meanRMSE = mean(rmse)) %>%
-  slice(which.min(meanRMSE)) %>%
-  pull(formula)
-# interpolate values for given date sequence
-mnpnPredList <- pblapply(dateSequence,
-                         function(x) krigingFunction(hexGridCentroidsSf, weather, mnpnFormula,
-                                                     'MNPN', x, minTemperature,
-                                                     maxTemperature))
-mnpnDf <- data.table::rbindlist(mnpnPredList)
-saveRDS(mnpnDf, 'data/interpolation/mnpn.rds')
-
-# EVAP
-minEvap <- 0
-maxEvap <- max(weather$EVAP, na.rm=TRUE)
-# perform thin plate spline interpolation
-evapPredList <- pblapply(dateSequence,
-                         function(x) tpsInterpolation(weather, 'EVAP', x,
-                                                     hexGridCentroidsSf, minEvap,
-                                                     maxEvap))
-# reconstruct list of dataframes to single dataframe
-evapDf <- data.table::rbindlist(evapPredList)
-# store dataframe in R Data Structure
-saveRDS(evapDf, 'data/interpolation/evap.rds')
-
-#### Weather Type --------------------------------------------------------------
-# extract weather columns containing weather type
-wtColumns <- weather %>%
-  dplyr::select(contains('WT')) %>%
-  colnames()
-# iterate over category columns
-for (wtColumn in wtColumns[15:19]) {
-  print(wtColumn)
-  # perform indicator kriging
-  wtPredList <- pblapply(dateSequence,
-                         function(x) indicatorKriging(weather, wtColumn, hexGridCentroidsSf,
-                                                      x))
-  # bind list of dataframes to single dataframe
-  wtPredDf <- data.table::rbindlist(wtPredList)
-  # save dataframe in R Data Structure
-  saveRDS(wtPredDf, paste0('data/interpolation/',wtColumn, '.rds'))
+# calculate area of categories in cell
+for (layer in 1:length(landscapeData@layers)) {
+  # extract name of file
+  name <- strsplit(landscapeData@layers[[layer]]@file@name, '\\\\')[[1]]
+  name <- name[length(name)]
+  name <- strsplit(name, '[.]')[[1]][1]
+  print(name)
+  landscapeValuesList <- exactextractr::exact_extract(landscapeData[[layer]], hexGridSf,
+                                                      include_cols=c('ID'))
+  
+  landscapeAggList <- pbmclapply(landscapeValuesList,
+                                 function(df) df %>%
+                                   group_by(ID, value) %>%
+                                   summarise(.groups='keep',coverage_fraction = sum(coverage_fraction))%>% 
+                                   ungroup(),
+                                 mc.cores=cores)
+  
+  landscapeAggDf <- data.table::rbindlist(landscapeAggList)
+  landscapeAggDf <- landscapeAggDf %>%
+    mutate(area = coverage_fraction * 900) %>%
+    left_join(landscapeLegend, by='value') %>%
+    dplyr::select(-c(mainClass, coverage_fraction, value)) %>%
+    tidyr::pivot_wider(names_from = subClass,
+                       values_from = area,
+                       values_fill = 0)
+  saveRDS(landscapeAggDf, paste0('data/landCover/polygon/PolygonLayer',name, '.rds'))
+  rm(landscapeValuesList, landscapeAggList, landscapeAggDf)
+  gc()
 }
+
+# Wildfire ---------------------------------------------------------------------
 
 # Test area --------------------------------------------------------------------
 
