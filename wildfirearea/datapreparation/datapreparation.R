@@ -689,7 +689,7 @@ if (aggMonth == TRUE) {
     group_by(STATION, DATE, LONGITUDE, LATITUDE, ELEVATION, WDF2) %>%
     summarise(COUNT = n()) %>%
     ungroup() %>%
-    pivot_wider(names_from = WDF2, values_from = COUNT, names_prefix = 'WDF2_') %>%
+    pivot_wider(names_from = WDF2, values_from = COUNT, names_prefix = 'WDF2_', values_fill = 0) %>%
     dplyr::select(-WDF2_NA)
   
   countWDF5 <- weather %>%
@@ -697,7 +697,7 @@ if (aggMonth == TRUE) {
     group_by(STATION, DATE, LONGITUDE, LATITUDE, ELEVATION, WDF5) %>%
     summarise(COUNT = n()) %>%
     ungroup() %>%
-    pivot_wider(names_from = WDF5, values_from = COUNT, names_prefix = 'WDF5_') %>%
+    pivot_wider(names_from = WDF5, values_from = COUNT, names_prefix = 'WDF5_', values_fill = 0) %>%
     dplyr::select(-WDF5_NA)
   
   
@@ -746,8 +746,8 @@ interpolateDf <- data.frame('column' = c('TMAX', 'TMIN', 'TAVG', 'TOBS',
                                            minPrcp, minSNOW, minSNWD, minTemperature,
                                            minTemperature, minSNWD),
                             'maxValue' = c(maxTemperature, maxTemperature, maxTemperature, maxTemperature,
-                                           maxPrcp, minSNOW, minSNWD, minTemperature,
-                                           maxTemperature, minSNWD))
+                                           maxPrcp, maxSNOW, maxSNWD, maxTemperature,
+                                           maxTemperature, maxSNWD))
 
 wdfColumns <- weather %>%
   dplyr::select(contains('WDF') & !contains('ATTRIBUTES')) %>%
@@ -761,7 +761,7 @@ interpolateDf <- rbind(interpolateDf, wdfDataframe)
 
 #### Inverse Distance Weighting ------------------------------------------------
 # iterate over interpolate dataframe
-for (row in 1:nrow(interpolateDf)) {
+for (row in 11:nrow(interpolateDf)) {
   # extract row of dataframe
   rowValues <- interpolateDf[row, ]
   # extract column that is getting interpolated
@@ -789,8 +789,6 @@ for (row in 1:nrow(interpolateDf)) {
   # remove prediction list and dataframe
   rm(idwPredList, idwPredDf)
 }
-
-
 
 #### Indicator Kriging Interpolation -------------------------------------------
 # extract columns that will be used for Indicator Kriging
@@ -820,8 +818,8 @@ krigingDf <- data.frame('column' = c('TMAX', 'TMIN', 'TAVG', 'TOBS',
                                        minPrcp, minSNOW, minSNWD, minTemperature,
                                        minTemperature, minSNWD),
                         'maxValue' = c(maxTemperature, maxTemperature, maxTemperature, maxTemperature,
-                                       maxPrcp, minSNOW, minSNWD, minTemperature,
-                                       maxTemperature, minSNWD))
+                                       maxPrcp, maxSNOW, maxSNWD, minTemperature,
+                                       maxTemperature, maxSNWD))
 
 # iterate over kriging dataframe rows to perform interpolation
 for (row in 1:nrow(krigingDf)) {
