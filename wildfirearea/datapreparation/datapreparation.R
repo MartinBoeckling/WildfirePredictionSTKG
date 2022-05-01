@@ -256,7 +256,7 @@ idwFunction <- function(inputDf, inputColumn, inputDate,
                         maxValue){
   
   idwFormula <- as.formula(inputFormula)
-
+  
   interpolateDf <- inputDf %>%
     # select necessary columns for the interpolation
     dplyr::select(STATION, LATITUDE,
@@ -268,45 +268,58 @@ idwFunction <- function(inputDf, inputColumn, inputDate,
     # keep only distinct station ids in data. If duplicate is observed, first
     # row is kept
     dplyr::distinct(STATION, .keep_all = TRUE)
-  
   # transform dataframe into sf object
   interpolateSf <- sf::st_as_sf(interpolateDf, coords=c('LONGITUDE', 'LATITUDE'),
-                           crs=prjLonLat, remove = FALSE)
-  
-  idpSeq <- c(0.1, seq(0.5, 5, 0.5))
-  
-  cvGrid <- expand.grid(IDP = idpSeq)
-  
-  cvGrid$RMSE <- NA
-  
-  for (i in 1:nrow(cvGrid)){
-    idwInterpolation <- gstat(formula = idwFormula,
-                              data = interpolateSf,
-                              set = list(idp = cvGrid[i, 'IDP']))
+                                crs=prjLonLat, remove = FALSE)
+  if (nrow(interpolateSf)==1){
+    # construct dataframe with one value
+    idwPredict <- inputLocations[, c('ID', 'geometry')]
+    idwPredict$DATE <- inputDate
+    idwPredict[, inputColumn] <- unique(interpolateDf[, inputColumn])
+    idwPredict <- idwPredict %>%
+      dplyr::select(!!as.symbol(inputColumn), DATE, ID, geometry)
+  }else {
+    # transform dataframe into sf object
+    interpolateSf <- sf::st_as_sf(interpolateDf, coords=c('LONGITUDE', 'LATITUDE'),
+                                  crs=prjLonLat, remove = FALSE)
     
-    idwCrossval <- gstat.cv(idwInterpolation,
-                            beta = cvGrid[i, 'IDP'],
-                            debug.level = 0,
-                            verbose = FALSE)
+    idpSeq <- c(0.1, seq(0.5, 5, 0.5))
     
-    cvGrid[i, 'RMSE'] <- RMSE(idwCrossval$residual)
+    cvGrid <- expand.grid(IDP = idpSeq)
     
+    cvGrid$RMSE <- NA
+    
+    for (i in 1:nrow(cvGrid)){
+      idwInterpolation <- gstat(formula = idwFormula,
+                                data = interpolateSf,
+                                set = list(idp = cvGrid[i, 'IDP']))
+      
+      idwCrossval <- gstat.cv(idwInterpolation,
+                              beta = cvGrid[i, 'IDP'],
+                              debug.level = 0,
+                              verbose = FALSE)
+      
+      cvGrid[i, 'RMSE'] <- RMSE(idwCrossval$residual)
+      
+    }
+    optIdx <- which.min(cvGrid$RMSE)
+    optIDP <- cvGrid$IDP[optIdx]
+    optRMSE <- cvGrid$RMSE[optIdx]
+    optIDW <- gstat(formula = idwFormula,
+                    data = interpolateSf,
+                    set = list(idp = optIDP))
+    
+    idwPredict <- predict(object = optIDW,
+                          newdata = inputLocations,
+                          debug.level = 0)
+    idwPredict <- idwPredict %>%
+      dplyr::select(var1.pred, geometry) %>%
+      dplyr::mutate(DATE = inputDate, ID = inputLocations$ID) %>%
+      dplyr::rename(!!inputColumn := var1.pred) %>%
+      dplyr::select(!!as.symbol(inputColumn), DATE, ID, geometry)
   }
-  optIdx <- which.min(cvGrid$RMSE)
-  optIDP <- cvGrid$IDP[optIdx]
-  optRMSE <- cvGrid$RMSE[optIdx]
-  optIDW <- gstat(formula = idwFormula,
-                  data = interpolateSf,
-                  set = list(idp = optIDP))
   
-  idwPredict <- predict(object = optIDW,
-                        newdata = inputLocations,
-                        debug.level = 0)
-  idwPredict <- idwPredict %>%
-    dplyr::select(var1.pred, geometry) %>%
-    dplyr::mutate(DATE = inputDate, ID = inputLocations$ID) %>%
-    dplyr::rename(!!inputColumn := var1.pred) %>%
-    dplyr::select(!!as.symbol(inputColumn), DATE, ID, geometry)
+  
   
   return(idwPredict)
 }
@@ -461,7 +474,7 @@ prjMeter <- 'EPSG:3785'
 prjLonLat <- 'EPSG:4269'
 # determination if data should be aggregated before interpolation
 aggMonth <- TRUE
-# create sequence of dates in time range of 2000 to 2015 depending on aggregation
+# create sequence of dates in time range of 2010 to 2021 depending on aggregation
 
 dailyDateSequence <- seq(from=as.Date('2010-01-01'), to=as.Date('2021-12-31'), by='days')
 
@@ -480,7 +493,7 @@ if (aggMonth == TRUE) {
 # date sequence for kriging validation
 set.seed(15)
 sampleDate <- sort(sample(interpolateDateSequence,
-                          size = round(0.5*length(interpolateDateSequence))))
+                          size = round(0.2*length(interpolateDateSequence))))
 
 # determine cores to be used for multiprocessing
 
@@ -503,6 +516,18 @@ minSNOW <- 0
 maxSNOW <- 1701.8
 minSNWD <- 0
 maxSNWD <- 11455.4
+
+### Wind -----------------------------------------------------------------------
+# AWND
+minWindSpeed <- 0
+maxWindSpeed <- 88.96
+# WDMV
+minWDMV <- 0
+maxWDMV <- 1075.47
+
+### Evaporation ----------------------------------------------------------------
+minEvap <- 0
+maxEvap <- 349.73
 
 # Grid creation ----------------------------------------------------------------
 'Grid consisting of hexagonal grid cells. '
@@ -738,32 +763,42 @@ hexGridCentroidsSf <- hexGridCentroidsSf %>%
   mutate(ID = paste0('ID', ID)) %>%
   st_join(hexGridElevationSf)
 
+#### Inverse Distance Weighting ------------------------------------------------
 # create interpolation dataframe
-interpolateDf <- data.frame('column' = c('TMAX', 'TMIN', 'TAVG', 'TOBS',
+idwDf <- data.frame('column' = c('TMAX', 'TMIN', 'TAVG', 'TOBS',
                                          'PRCP', 'SNOW', 'SNWD', 'MNPN',
-                                         'MXPN', 'WESD'),
+                                         'MXPN', 'WESD', 'AWND', 'EVAP',
+                                         'WDMV', 'WSF2', 'WSF5', 'WESF'),
                             'minValue' = c(minTemperature, minTemperature, minTemperature, minTemperature,
                                            minPrcp, minSNOW, minSNWD, minTemperature,
-                                           minTemperature, minSNWD),
+                                           minTemperature, minSNWD, minWindSpeed, minEvap,
+                                           minWDMV, minWindSpeed, minWindSpeed, minSNOW),
                             'maxValue' = c(maxTemperature, maxTemperature, maxTemperature, maxTemperature,
                                            maxPrcp, maxSNOW, maxSNWD, maxTemperature,
-                                           maxTemperature, maxSNWD))
+                                           maxTemperature, maxSNWD, maxWindSpeed, maxEvap,
+                                           maxWDMV, maxWindSpeed, maxWindSpeed, maxSNOW))
 
 wdfColumns <- weather %>%
   dplyr::select(contains('WDF') & !contains('ATTRIBUTES')) %>%
   colnames()
 
-wdfDataframe <- data.frame('column' = wdfColumns,
+wdfDf <- data.frame('column' = wdfColumns,
                            'minValue' = 0,
                            'maxValue' = 31)
 
-interpolateDf <- rbind(interpolateDf, wdfDataframe)
+wtColumns <- weather %>%
+  dplyr::select(contains('WT') | contains('WV') & !contains('ATTRIBUTES')) %>%
+  colnames()
 
-#### Inverse Distance Weighting ------------------------------------------------
+wtDf <- data.frame('column' = wtColumns,
+                          'minValue' = 0,
+                          'maxValue' = 1)
+
+idwDf <- rbind(idwDf, wdfDataframe, wtDataframe)
 # iterate over interpolate dataframe
-for (row in 11:nrow(interpolateDf)) {
+for (row in 1:nrow(idwDf)) {
   # extract row of dataframe
-  rowValues <- interpolateDf[row, ]
+  rowValues <- idwDf[row, ]
   # extract column that is getting interpolated
   interpolateColumn <- rowValues %>%
     dplyr::pull('column')
@@ -774,7 +809,7 @@ for (row in 11:nrow(interpolateDf)) {
   valueMax <- rowValues %>%
     dplyr::pull('maxValue')
   # print iteration information
-  print(paste0(interpolateColumn, ' - ', row, ' of ', nrow(interpolateDf), ' rows '))
+  print(paste0(interpolateColumn, ' - ', row, ' of ', nrow(idwDf), ' rows '))
   # perform IDW interpolation for each date sequence which returns a list of dataframes
   idwPredList <- pbmclapply(interpolateDateSequence,
                             function(x) idwFunction(weather, interpolateColumn, x,
@@ -789,6 +824,7 @@ for (row in 11:nrow(interpolateDf)) {
   # remove prediction list and dataframe
   rm(idwPredList, idwPredDf)
 }
+
 
 #### Indicator Kriging Interpolation -------------------------------------------
 # extract columns that will be used for Indicator Kriging
@@ -811,20 +847,34 @@ for (indicatorColumn in indicatorColumns) {
 
 #### Kriging Interpolation -----------------------------------------------------
 # create kriging dataframe to specify parameters
+
 krigingDf <- data.frame('column' = c('TMAX', 'TMIN', 'TAVG', 'TOBS',
                                      'PRCP', 'SNOW', 'SNWD', 'MNPN',
-                                     'MXPN', 'WESD'),
+                                     'MXPN', 'WESD', 'AWND', 'WDMV',
+                                     'WSF2', 'WSF5', 'WESF'),
                         'minValue' = c(minTemperature, minTemperature, minTemperature, minTemperature,
                                        minPrcp, minSNOW, minSNWD, minTemperature,
-                                       minTemperature, minSNWD),
+                                       minTemperature, minSNWD, minWindSpeed, minWDMV,
+                                       minWindSpeed, minWindSpeed, minSNOW),
                         'maxValue' = c(maxTemperature, maxTemperature, maxTemperature, maxTemperature,
-                                       maxPrcp, maxSNOW, maxSNWD, minTemperature,
-                                       maxTemperature, maxSNWD))
+                                       maxPrcp, maxSNOW, maxSNWD, maxTemperature,
+                                       maxTemperature, maxSNWD, maxWindSpeed, maxWDMV,
+                                       maxWindSpeed, maxWindSpeed, maxSNOW))
+
+wdfColumns <- weather %>%
+  dplyr::select(contains('WDF') & !contains('ATTRIBUTES')) %>%
+  colnames()
+
+wdfDf <- data.frame('column' = wdfColumns,
+                    'minValue' = 0,
+                    'maxValue' = 31)
+
+krigingDf <- rbind(krigingDf, wdfColumns)
 
 # iterate over kriging dataframe rows to perform interpolation
-for (row in 1:nrow(krigingDf)) {
+for (row in 1:nrow(interpolateDf)) {
   # extract single row from dataframe to get necessary values
-  rowValues <- krigingDf[row, ]
+  rowValues <- interpolateDf[row, ]
   # extract columns as vector
   interpolateColumn <- rowValues %>%
     dplyr::pull('column')
