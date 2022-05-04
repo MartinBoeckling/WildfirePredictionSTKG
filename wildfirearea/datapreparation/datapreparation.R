@@ -872,9 +872,9 @@ wdfDf <- data.frame('column' = wdfColumns,
 krigingDf <- rbind(krigingDf, wdfColumns)
 
 # iterate over kriging dataframe rows to perform interpolation
-for (row in 1:nrow(interpolateDf)) {
+for (row in 1:nrow(krigingDf)) {
   # extract single row from dataframe to get necessary values
-  rowValues <- interpolateDf[row, ]
+  rowValues <- krigingDf[row, ]
   # extract columns as vector
   interpolateColumn <- rowValues %>%
     dplyr::pull('column')
@@ -943,6 +943,11 @@ for (row in 1:nrow(interpolateDf)) {
     dplyr::select(!!as.symbol(interpolateColumn), DATE, ID, geometry)
   # store interpolation dataframe into RDS structure
   saveRDS(interpolateDf, paste0('data/interpolation/', interpolateColumn, '.rds'))
+  # delete iteration objects to prevent memory overflow error
+  rm(interpolateDf, idwPredDf, idwPredList, krigingPredDf, krigingPredList,
+     validationDf, validationList)
+  # run garbage collector to collect unnecessary object
+  gc()
 }
 
 # Spatial aggregation ----------------------------------------------------------
@@ -1007,9 +1012,37 @@ for (layer in 1:length(landscapeData@layers)) {
 }
 
 # Wildfire ---------------------------------------------------------------------
+wildfireDirs <- list.dirs('data/wildfire', recursive = FALSE)
+wildfireDf <- data.frame()
+for (wildfireDir in wildfireDirs){
+  year <- strsplit(wildfireDir, '/')[[1]][3]
+  print(year)
+  wildfireShpFiles <- list.files(wildfireDir, pattern = '.shp', full.names = TRUE)
+  wildfireDfList <- lapply(wildfireShpFiles, read_sf)
+  wildfireDfSingle <- sf::st_as_sf(data.table::rbindlist(wildfireDfList))
+  wildfireDfSingle <- wildfireDfSingle %>%
+    mutate(DATE = as.Date(paste0(year, '-01-01')) + BurnDate) %>%
+    st_make_valid()
+  wildfireDf <- rbind(wildfireDf, wildfireDfSingle)
+}
+wildfireDf <- st_transform(wildfireDf, crs=prjLonLat)
+
+wildfireDf <- wildfireDf %>%
+  st_join(hexGridSf) %>%
+  dplyr::select(DATE, ID, geometry) %>%
+  na.omit(ID) %>%
+  mutate(WILDFIRE = 1)
+
+# DE-9IM -----------------------------------------------------------------------
+testGeometry <- readRDS('data/openstreetmap/power/line/line2021.osm')
+testGeometry <- testGeometry$osm_lines
+testGeometry <- st_transform(testGeometry, crs=prjLonLat)
+relation <- sf::st_relate(hexGridSf, testGeometry)
 
 # Test area --------------------------------------------------------------------
-
+wildfireDf <- st_transform(wildfireDf, crs=prjLonLat)
+test <- hexGridSf %>%
+  st_join(wildfireDf, )
 
 
   
