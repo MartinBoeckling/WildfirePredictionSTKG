@@ -468,6 +468,10 @@ indicatorKriging <- function(inputWeather, inputColumn, inputLocations,
   return(krigingPred)
 }
 
+predicateDetermination <- function(DE9IMString) {
+  T <- c()
+}
+
 # Script parameters ------------------------------------------------------------
 # determine parameters for map projection used over the complete script
 prjMeter <- 'EPSG:3785'
@@ -1034,10 +1038,12 @@ wildfireDf <- wildfireDf %>%
   mutate(WILDFIRE = 1)
 
 # DE-9IM -----------------------------------------------------------------------
-testGeometry <- readRDS('data/openstreetmap/power/line/line2021.osm')
-testGeometry <- testGeometry$osm_lines
-testGeometry <- st_transform(testGeometry, crs=prjLonLat)
-relation <- sf::st_relate(hexGridSf, testGeometry)
+powerline <- readRDS('data/openstreetmap/power/line/line2021.osm')
+powerline <- powerline$osm_lines
+powerline <- st_transform(powerline, crs=prjLonLat)
+relation <- sf::st_relate(hexGridSf, powerline)
+
+predicate <- sf::st_intersects(hexGridSf, powerline)
 
 # Test area --------------------------------------------------------------------
 wildfireDf <- st_transform(wildfireDf, crs=prjLonLat)
