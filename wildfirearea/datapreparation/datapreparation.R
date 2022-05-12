@@ -4,6 +4,7 @@ Description: This script prepares the data for the fourth phase of the CRISP-DM
 process, the modelling phase. The script transforms the data necessary for the '
 # import packages --------------------------------------------------------------
 library(automap)
+library(BAMMtools)
 library(data.table)
 library(dplyr)
 library(exactextractr)
@@ -468,9 +469,32 @@ indicatorKriging <- function(inputWeather, inputColumn, inputLocations,
   return(krigingPred)
 }
 
-predicateDetermination <- function(DE9IMString) {
-  T <- c()
+predicateDetermination <- function(object1, object2) {
+  relationDetermine <- list('contains' = st_contains(object1, object2), 'covered by' = st_covered_by(object1, object2),
+                         'covers' = st_covers(object1, object2), 'crosses' = st_crosses(object1, object2),
+                         'intersects' = st_intersects(object1, object2), 'overlaps' = st_overlaps(object1, object2),
+                         'touches' = st_touches(object1, object2))
+  return(relationDetermine)
 }
+
+edgeBuilding <- function(listStructure, geometryObject1, geometryObject2){
+  relation <- attr(listStructure, 'predicate')
+  containingElement <- unlist(lapply(listStructure, length))
+  if (sum(containingElement) > 0) {
+    containingElement <- unlist(lapply(listStructure, length))
+    validGridIndex <- containingElement > 0
+    objectId <- as.data.frame(geometryObject1)[validGridIndex,1]
+    fromColumn <- rep(objectId, containingElement[validGridIndex])
+    toColumn <- as.data.frame(geometryObject2)[unlist(listStructure[validGridIndex]), 1]
+    edgeDf <- data.frame('from' = fromColumn, 'to' = toColumn, 'description' = relation)
+  } else{
+    edgeDf <- data.frame('from' = character(), 'to' = character(), 'description' = character())
+  }
+  return(edgeDf)
+}
+
+
+
 
 # Script parameters ------------------------------------------------------------
 # determine parameters for map projection used over the complete script
@@ -505,6 +529,7 @@ if (.Platform$OS.type == "windows") {
   warning('Due to Windows as OS no multiprocessing possible')
   cores <- 1
 } else {
+  warning('Set core variable carefully to prevent memory leakage for fork operations')
   cores <- detectCores() - 2
 }
 ### Temperature limit ----------------------------------------------------------
@@ -966,7 +991,7 @@ landscapeFiles <- list.files(path = 'data/landCover', pattern = '.tif$', full.na
 # create raster stack for all landscape files
 landscapeData <- raster::stack(landscapeFiles)
 
-# create legend and class
+# create legend and class dataframe
 landscapeLegend <- data.frame('value' = c(0, 11, 12, 21, 22, 23, 24, 31, 41, 42, 43,
                                           51, 52, 71, 72, 73, 74, 81, 82, 90, 95),
                               'mainClass' = c('Unclassified', 'Water', 'Water',
@@ -985,33 +1010,43 @@ landscapeLegend <- data.frame('value' = c(0, 11, 12, 21, 22, 23, 24, 31, 41, 42,
                                              'Lichens', 'Moss', 'Pasture/Hay', 'Cultivated Crops',
                                              'Woody Wetlands', 'Emergent Herbaceous Wetlands'))
 
-# calculate area of categories in cell
+# calculate area of categories in each hexagon grid cell
 for (layer in 1:length(landscapeData@layers)) {
   # extract name of file
   name <- strsplit(landscapeData@layers[[layer]]@file@name, '\\\\')[[1]]
   name <- name[length(name)]
   name <- strsplit(name, '[.]')[[1]][1]
   print(name)
+  # store list of landcover fraction to each associated cell list
   landscapeValuesList <- exactextractr::exact_extract(landscapeData[[layer]], hexGridSf,
                                                       include_cols=c('ID'))
-  
+  # group singular fraction values within each grid cell storing values in list
   landscapeAggList <- pbmclapply(landscapeValuesList,
                                  function(df) df %>%
                                    group_by(ID, value) %>%
                                    summarise(.groups='keep',coverage_fraction = sum(coverage_fraction))%>% 
                                    ungroup(),
                                  mc.cores=cores)
-  
+  # bind list of dataframes to single dataframe
   landscapeAggDf <- data.table::rbindlist(landscapeAggList)
+  # transform single datrame into format with covered area and cell id and associated
+  # area per grid cell
   landscapeAggDf <- landscapeAggDf %>%
+    # calculate area based on raster resolution of 30m*30m cells
     mutate(area = coverage_fraction * 900) %>%
+    # join landcover ID with associated landscape classes
     left_join(landscapeLegend, by='value') %>%
+    # exclude main class, coverage fraction and value column
     dplyr::select(-c(mainClass, coverage_fraction, value)) %>%
+    # pivot rows into columns based on grid cell ID
     tidyr::pivot_wider(names_from = subClass,
                        values_from = area,
                        values_fill = 0)
+  # save RDS file with aggregated landscape raster values per hexagon cell ID
   saveRDS(landscapeAggDf, paste0('data/landCover/polygon/PolygonLayer',name, '.rds'))
+  # remove temporary data objects
   rm(landscapeValuesList, landscapeAggList, landscapeAggDf)
+  # perform garbace collector method
   gc()
 }
 
@@ -1035,20 +1070,253 @@ wildfireDf <- wildfireDf %>%
   st_join(hexGridSf) %>%
   dplyr::select(DATE, ID, geometry) %>%
   na.omit(ID) %>%
-  mutate(WILDFIRE = 1)
+  mutate(WILDFIRE = 1,
+         DATE = floor_date(DATE, unit='month'))
+# save wildfire dataframe into RDS object
+saveRDS(wildfireDf, 'data/wildfire/wildfire.rds')
 
 # DE-9IM -----------------------------------------------------------------------
-powerline <- readRDS('data/openstreetmap/power/line/line2021.osm')
-powerline <- powerline$osm_lines
-powerline <- st_transform(powerline, crs=prjLonLat)
-relation <- sf::st_relate(hexGridSf, powerline)
+## Hex Grid relation -----------------------------------------------------------
 
-predicate <- sf::st_intersects(hexGridSf, powerline)
+hexGridRelation <- predicateDetermination(hexGridSf, hexGridSf)
+hexGridRelationList <- pbmclapply(hexGridRelation, function(x) edgeBuilding(x, hexGridSf, hexGridSf),
+                               mc.cores=cores)
+hexGridRelationDf <- data.table::rbindlist(hexGridRelationList)
 
-# Test area --------------------------------------------------------------------
-wildfireDf <- st_transform(wildfireDf, crs=prjLonLat)
-test <- hexGridSf %>%
-  st_join(wildfireDf, )
+duplicateRows <- apply(hexGridRelationDf[,1:2], 1, function(x) length(unique(x[!is.na(x)])) != 1)
+hexGridRelationDf <- hexGridRelationDf[duplicateRows,]
 
+
+
+
+elevationBreaks <- getJenksBreaks(hexGridSf$ELEVATION, k=6)
+coastDistanceBreaks <- getJenksBreaks(hexGridSf$COASTDISTANCE, k=6)
+
+hexGridSfTransform <- hexGridSf
+
+hexGridSfTransform$ELEVATION <- cut(hexGridSf$ELEVATION, breaks=elevationBreaks, labels=c('low', 'low-medium', 'medium', 'medium-high', 'high'))
+hexGridSfTransform$COASTDISTANCE <- cut(hexGridSf$COASTDISTANCE, breaks=coastDistanceBreaks, labels=c('low', 'low-medium', 'medium', 'medium-high', 'high'))
+
+gridColumnRelation <- as.data.frame(hexGridSfTransform) %>%
+  dplyr::select(-geometry) %>%
+  pivot_longer(cols = -any_of(c('ID', 'LONGITUDE', 'LATITUDE')),
+               names_to = 'description',
+               values_to = 'to') %>%
+  rename('from' = 'ID') %>%
+  dplyr::select(from, to, description)
+
+hexGridRelationDf <- bind_rows(hexGridRelationDf, gridColumnRelation)
+
+saveRDS(hexGridRelationDf, 'data/network/hexgridRelation.rds')
+
+## OpenStreet Map --------------------------------------------------------------
+openstreetmapFiles <- list.files('data/openstreetmap', pattern = '(201[0-9]|202[0-9]).osm',
+                                 recursive = TRUE, full.names = TRUE)
+# construct dataframe with eligable columns and geometry
+openstreetDf <- data.frame('class' = c('bbq', 'childcare', 'kindergarten', 'motorway',
+                                       'primary', 'secondary', 'tertiary', 'trunk',
+                                       'unclassified', 'firepit', 'playground', 'summer_camp',
+                                       'cable', 'catenary_mast', 'compensator', 'line',
+                                       'minor_line', 'pole', 'portal', 'tower',
+                                       'abandoned', 'construction', 'disused', 'funicular',
+                                       'light_rail', 'monorail', 'narrow_gauge', 'rail',
+                                       'pyrotechnics', 'camp_pitch', 'camp_site', 'caravan_site',
+                                       'wilderness_hut'),
+                           'geometryClass' = c('osm_points', 'osm_points', 'osm_points', 'osm_lines',
+                                               'osm_lines', 'osm_lines', 'osm_lines', 'osm_lines',
+                                               'osm_lines', 'osm_points', 'osm_points', 'osm_points',
+                                               'osm_lines', 'osm_points', 'osm_points', 'osm_lines',
+                                               'osm_lines', 'osm_points', 'osm_points', 'osm_points',
+                                               'osm_lines', 'osm_lines', 'osm_lines', 'osm_lines',
+                                               'osm_lines', 'osm_lines', 'osm_lines', 'osm_lines',
+                                               'osm_points', 'osm_points', 'osm_points', 'osm_points',
+                                               'osm_points'),
+                           'columns' = I(list(c('osm_id', 'fuel', 'geometry'), c('osm_id'), c('osm_id'),
+                                              c('osm_id', 'hgv', 'lanes', 'maxspeed', 'oneway'),
+                                              c('osm_id', 'construction', 'lanes', 'maxspeed', 'oneway'),
+                                              c('osm_id', 'construction', 'lanes', 'maxspeed', 'oneway'),
+                                              c('osm_id', 'construction', 'lanes', 'maxspeed', 'oneway'),
+                                              c('osm_id', 'construction', 'lanes', 'maxspeed', 'oneway'),
+                                              c('osm_id', 'construction', 'lanes', 'maxspeed', 'oneway'),
+                                              c('osm_id', 'construction', 'lanes', 'maxspeed', 'oneway'),
+                                              c('osm_id'), c('osm_id'), c('osm_id', 'cables', 'location', 'operator', 'voltage'),
+                                              c('osm_id'), c('osm_id'), c('osm_id', 'cables', 'location', 'operator', 'voltage'),
+                                              c('osm_id', 'operator', 'line_attachement', 'line_management'),
+                                              c('osm_id'), c('osm_id'), c('osm_id', 'operator'),
+                                              c('osm_id', 'gauge', 'old_railway_operator', 'service'),
+                                              c('osm_id', 'electrified', 'gauge', 'operator', 'voltage'),
+                                              c('osm_id', 'electrified', 'gauge', 'operator', 'voltage'),
+                                              c('osm_id', 'electrified', 'gauge'),
+                                              c('osm_id', 'electrified', 'gauge', 'operator', 'voltage'),
+                                              c('osm_id', 'electrified', 'gauge', 'operator', 'voltage'),
+                                              c('osm_id', 'electrified', 'gauge', 'operator', 'voltage'),
+                                              c('osm_id', 'electrified', 'gauge', 'operator', 'voltage'),
+                                              c('osm_id'), c('osm_id', 'camp_pitch.electric', 'camp_pitch.fire', 'fireplace', 'power_supply'),
+                                              c('osm_id', 'campfire', 'fire', 'fireplace', 'openfire', 'smoking'),
+                                              c('osm_id', 'operator', 'openfire', 'smoking'),
+                                              c('osm_id'))))
+
+hexGridSf <- st_transform(hexGridSf, crs=prjMeter)
+openstreetmapGraphEdge <- data.frame()
+for (filePath in openstreetmapFiles){
+  # split path into list for each slashes
+  pathSplit <- strsplit(filePath, '/')[[1]]
+  # extract main class of object
+  mainClass <- pathSplit[3]
+  # extract category of object
+  objectCategory <- pathSplit[4]
+  # build class relation of geometry object
+  classRelation <- data.frame('from' = c(mainClass, objectCategory),
+                              'to' = c(objectCategory, mainClass),
+                              'description' = c('mainClassOf', 'subClassOf'))
+  # extract file name
+  fileName <- strsplit(pathSplit[5], split = '[.]')[[1]][1]
+  # extract year
+  osmYear <- as.numeric(gsub(".*?([0-9]+).*", "\\1", fileName))
+  # print iteration step
+  print(paste(mainClass, objectCategory, osmYear, sep=' - '))
+  #read row from value dataframe
+  rowValues = openstreetDf[openstreetDf$class == objectCategory,]
+  # read in geometry object of osm object
+  geometryObject <- readRDS(filePath)
+  # check if associated dataframe to geometry class is empty
+  if (is.null(geometryObject[[rowValues$geometryClass]])){
+    next
+  } else{
+    # extract geometric type of object
+    geometryObject <- geometryObject[[rowValues$geometryClass]]
+    ## Implement selection process for eligeble columns
+    geometryObject <- geometryObject %>%
+      dplyr::select(any_of(rowValues$columns[[1]]))
+    
+    if (!'osm_id' %in% colnames(geometryObject)){
+      geometryObject <- geometryObject %>%
+        rownames_to_column('osm_id')
+    }
+    # determine object relation by pairwise combination
+    objectClassRelation <- expand.grid(objectCategory, geometryObject$osm_id) %>%
+      rename('from' ='Var1', 'to' = 'Var2') %>%
+      mutate(description = 'mainCategoryOf')
+    if (length(geometryObject) >  2){
+      # determine values based on columns
+      objectColumnRelation <- as.data.frame(geometryObject) %>%
+        dplyr::select(-geometry) %>%
+        pivot_longer(cols = -any_of('osm_id'),
+                     names_to = 'description',
+                     values_to = 'to') %>%
+        rename('from' = 'osm_id') %>%
+        dplyr::select(from, to, description)  
+    } else{
+      objectColumnRelation <- data.frame()
+    }
+    
+    # transform object into lonlat projection
+    geometryObject <- sf::st_transform(geometryObject, crs = prjMeter)
+    # determine relation of objects
+    gridRelation <- predicateDetermination(hexGridSf, geometryObject)
+    gridRelationList <- pbmclapply(gridRelation, function(x) edgeBuilding(x, hexGridSf, geometryObject),
+                                   mc.cores=cores)
+    
+    objectRelation <- predicateDetermination(geometryObject, hexGridSf)
+    
+    objectRelationList <- pbmclapply(objectRelation, function(x) edgeBuilding(x, geometryObject, hexGridSf),
+                                     mc.cores=cores)
+    
+    relationList <- append(gridRelationList, objectRelationList)
+    relationDf <- data.table::rbindlist(relationList)
+    relationDf <- bind_rows(relationDf, classRelation, objectClassRelation, objectColumnRelation)
+    relationDf$YEAR <- osmYear
+    openstreetmapGraphEdge <- bind_rows(openstreetmapGraphEdge, relationDf)
+    rm(classRelation, geometryObject, gridRelation, gridRelationList, objectClassRelation,
+       objectColumnRelation, objectRelation, objectRelationList, relationDf, relationList,
+       rowValues)
+    gc()
+  }
+}
+saveRDS(openstreetmapGraphEdge, 'data/network/openstreetmap/edgeDataframe.rds')
+
+## Wildfire --------------------------------------------------------------------
+wildfire <- readRDS('data/wildfire/wildfire.rds')
+wildfire <- sf::st_transform(wildfire, crs=prjMeter)
+wildfire <- sf::st_make_valid(wildfire)
+wildfire <- wildfire %>%
+  rownames_to_column('WildfireID') %>%
+  mutate(WildfireID = paste0('Wildfire_', WildfireID))
+
+wildfireCategoryRelation <- expand.grid('wildfire', wildfire$WildfireID) %>%
+  rename('from' ='Var1', 'to' = 'Var2') %>%
+  mutate(description = 'mainCategoryOf')
+
+wildfireCategoryRelation <- wildfireCategoryRelation %>%
+  left_join(wildfire, by=c('to' = 'WildfireID')) %>%
+  dplyr::select(from, to, description, DATE)
+
+wildfireRelation <- predicateDetermination(hexGridSf, wildfire)
+
+wildfireRelationList <- pbmclapply(wildfireRelation, function(x) edgeBuilding(x, hexGridSf, wildfire),
+                                 mc.cores=cores)
+wildfireRelationDf <- data.table::rbindlist(wildfireRelationList)
+
+wildfireRelationDf <- wildfireRelationDf%>%
+  left_join(wildfire, by=c('to' = 'WildfireID')) %>%
+  dplyr::select(from, to, description, DATE)
+
+gridWildfireRelation <- predicateDetermination(wildfire, hexGridSf)
+gridWildfireRelationList <- pbmclapply(gridWildfireRelation, function(x) edgeBuilding(x, wildfire, hexGridSf),
+                                       mc.cores=cores)
+gridWildfireRelationDf <- data.table::rbindlist(gridWildfireRelationList)
+
+gridWildfireRelationDf <-gridWildfireRelationDf %>%
+  left_join(wildfire, by=c('from' = 'WildfireID')) %>%
+  dplyr::select(from, to, description, DATE)
+
+edgeWildfireDf <- bind_rows(wildfireCategoryRelation, wildfireRelationDf, gridWildfireRelationDf)
+
+saveRDS(edgeWildfireDf, 'data/network/wildfireRelation.rds')
+
+## Landscape -------------------------------------------------------------------
+nlcdPolygonFiles <- list.files('data/landCover/polygon', full.names = TRUE)
+landscapeEdgeDf <- data.frame()
+for (nlcdPath in nlcdPolygonFiles){
+  nlcdYear <- as.numeric(gsub(".*?([0-9]+).*", "\\1", nlcdPath))
+  print(paste('NLCD', nlcdYear))
+  landscape <- readRDS(nlcdPath)
+  landscape <- landscape %>%
+    pivot_longer(cols = -any_of('ID'),
+                 names_to = 'description',
+                 values_to = 'to') %>%
+    rename('from' = 'ID') %>%
+    dplyr::select(from, to, description)
+  
+  areaBreak <- getJenksBreaks(landscape$to, k=6)
+  landscape$to <- cut(landscape$to, breaks=areaBreak, labels=c('low', 'low-medium', 'medium', 'medium-high', 'high'))
+  landscape <- landscape %>%
+    replace_na(list(to = 'low'))
+  landscape$YEAR <- nlcdYear
+  landscapeEdgeDf <- bind_rows(landscapeEdgeDf, landscape)
+}
+saveRDS(landscapeEdgeDf, 'data/network/landscapeEdgeDf.rds')
+
+
+
+## Interpolated Weather --------------------------------------------------------
+### IDW Interpolation ----------------------------------------------------------
+
+weatherIdwDf <- data.frame()
+# join data for weather variables
+for (idwIteration in 1:length(idwInterpolationList)){
+  print(paste(idwIteration, 'of', length(idwInterpolationList), 'iteration'))
+  idwData <- idwInterpolationList[idwIteration]
+  interpolateData <- readRDS(idwData)
+  if (nrow(weatherIdwDf)==0){
+    weatherIdwDf <- interpolateData
+  }else{
+    weatherIdwDf <- weatherIdwDf %>%
+      left_join(interpolateData, by=c('ID', 'DATE', 'geometry'))
+  }
+}
+
+
+weatherDf
 
   

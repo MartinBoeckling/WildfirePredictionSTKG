@@ -4,9 +4,12 @@ library(dplyr)
 library(sf)
 library(tidyr)
 
-# Base -------------------------------------------------------------------------
+# Base Case --------------------------------------------------------------------
+# list all IDW Interpolation files
 idwInterpolationList <- list.files('data/interpolation/idw', full.names = TRUE)
+# list all landcover files in a list
 landcoverList <- list.files('data/landCover/polygon', full.names = TRUE)
+# create monthly date sequence for date generation
 monthlyDateSequence <- seq(from=as.Date('2010-01-01'), to=as.Date('2021-12-31'), by='months')
 
 weatherDf <- data.frame()
