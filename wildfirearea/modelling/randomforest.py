@@ -7,7 +7,8 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.metrics import classification_report
 from sklearn.model_selection import GridSearchCV
-from imblearn.over_sampling import SMOTENC
+from imblearn.over_sampling import RandomOverSampler
+import pickle
 
 def dataPreprocess(dataPath, testDate):
     print('Data Preprocessing')
@@ -18,8 +19,8 @@ def dataPreprocess(dataPath, testDate):
     testData = data[data['DATE'] >= testDate]
     trainDataY = trainData['WILDFIRE']
     trainDataX = trainData.drop(columns=['WILDFIRE', 'DATE', 'ID'], axis=1)
-    smoteSampling = SMOTENC(random_state=15, n_jobs=1, categorical_features=[71])
-    trainDataX, trainDataY = smoteSampling.fit_resample(trainDataX, trainDataY)
+    roseSampling = RandomOverSampler(random_state=15)
+    trainDataX, trainDataY = roseSampling.fit_resample(trainDataX, trainDataY)
     testDataY = testData['WILDFIRE']
     testDataX = testData.drop(columns=['WILDFIRE', 'DATE', 'ID'], axis=1)
     return (trainDataX, trainDataY), (testDataX, testDataY)
@@ -30,7 +31,7 @@ def randomForest(dataTrain, dataTest):
     dataTrainY = dataTrain[1]
     dataTestX = dataTest[0]
     dataTestY = dataTest[1]
-
+    print(dataTrainY.sum())
     numericTransformer = Pipeline(steps=[
         ('imputer', SimpleImputer(strategy='median'))
     ])
@@ -38,18 +39,32 @@ def randomForest(dataTrain, dataTest):
         ('encoder', OneHotEncoder())
     ])
     numericFeatures = dataTrainX.select_dtypes(include=['int64', 'float64']).columns
-    categoricFeatures = dataTestX.select_dtypes(include=['object']).columns
+    categoricFeatures = dataTrainX.select_dtypes(include=['object']).columns
     preprocessor = ColumnTransformer(
         transformers=[
             ('num', numericTransformer, numericFeatures),
             ('cat', categoricTransformer, categoricFeatures)])
+    dataTrainX = preprocessor.fit_transform(dataTrainX)
+    dataTestX = preprocessor.fit_transform(dataTestX)
+    # rf = Pipeline(steps=[('preprocessor', preprocessor),
+    #                     ('classifier', RandomForestClassifier(random_state=15, n_jobs=8))])
+    rf = RandomForestClassifier(random_state=15, n_jobs=-3)
     
-    rf = Pipeline(steps=[('preprocessor', preprocessor),
-                         ('classifier', RandomForestClassifier(n_estimators=1000, verbose=2, random_state=15,
-                         n_jobs=3))])
-    rf.fit(dataTrainX, dataTrainY)
-    predClass = rf.predict(dataTestX)
-    print(predClass)
+    paramGrid = {
+        'n_estimators': [200, 800, 1200],
+        'max_features': ['auto', 'log2', 0.25, 0.5, 0.75, 1.0]
+    }
+    cv = GridSearchCV(estimator=rf, param_grid=paramGrid, cv=5, scoring='roc_auc', verbose=2, n_jobs=1, error_score='raise')
+    cv.fit(dataTrainX, dataTrainY)
+    print(f'Best parameters: {cv.best_params_}')
+    with open('wildfirearea/modelling/bestParams.pkl') as f:
+        pickle.dump(cv.best_params_, f)
+    
+    print(f'Overall results: {cv.cv_results_}')
+    with open('wildfirearea/modelling/results.pkl') as f:
+        pickle.dump(cv.cv_results_, f)
+    predClass = cv.predict(dataTestX)
+    print(f'Sum of prediction:{sum(predClass)}' )
     print(f'Model score: {classification_report(dataTestY, predClass)}')
 
 if __name__ =='__main__':
