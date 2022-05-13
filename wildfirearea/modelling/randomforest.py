@@ -7,6 +7,7 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.metrics import classification_report
 from sklearn.model_selection import GridSearchCV
+from sklearn.utils import shuffle
 from imblearn.over_sampling import RandomOverSampler
 import pickle
 
@@ -54,7 +55,7 @@ def randomForest(dataTrain, dataTest):
         'n_estimators': [200, 800, 1200],
         'max_features': ['auto', 'log2', 0.25, 0.5, 0.75, 1.0]
     }
-    cv = GridSearchCV(estimator=rf, param_grid=paramGrid, cv=5, scoring='roc_auc', verbose=2, n_jobs=1, error_score='raise')
+    cv = GridSearchCV(estimator=rf, param_grid=paramGrid, cv=5, scoring='f1_macro', verbose=2.1, n_jobs=1, error_score='raise')
     cv.fit(dataTrainX, dataTrainY)
     print(f'Best parameters: {cv.best_params_}')
     with open('wildfirearea/modelling/bestParams.pkl') as f:
