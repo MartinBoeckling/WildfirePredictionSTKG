@@ -22,7 +22,7 @@ for row in tqdm(graphDataList):
 # build transformer
 transformer = RDF2VecTransformer(
     Word2Vec(epochs=10),
-    walkers=[RandomWalker(4, 10, with_reverse=False, n_jobs=2)],
+    walkers=[RandomWalker(4, 10, with_reverse=False, n_jobs=-3)],
     verbose=1
 )
 # extract embeddings

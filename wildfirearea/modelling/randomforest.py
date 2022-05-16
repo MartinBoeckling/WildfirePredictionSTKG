@@ -1,3 +1,4 @@
+# import packages
 import pandas as pd
 from pathlib import Path
 from sklearn.ensemble import RandomForestClassifier
@@ -49,11 +50,11 @@ def randomForest(dataTrain, dataTest):
     dataTestX = preprocessor.fit_transform(dataTestX)
     # rf = Pipeline(steps=[('preprocessor', preprocessor),
     #                     ('classifier', RandomForestClassifier(random_state=15, n_jobs=8))])
-    rf = RandomForestClassifier(random_state=15, n_jobs=-3)
+    rf = RandomForestClassifier(random_state=15, n_jobs=-1)
     
     paramGrid = {
-        'n_estimators': [200, 800, 1200],
-        'max_features': ['auto', 'log2', 0.25, 0.5, 0.75, 1.0]
+        'n_estimators': [800],
+        'max_features': ['sqrt', 'log2', 0.33, 0.66, 1.0]
     }
     cv = GridSearchCV(estimator=rf, param_grid=paramGrid, cv=5, scoring='f1_macro', verbose=2.1, n_jobs=1, error_score='raise')
     cv.fit(dataTrainX, dataTrainY)
