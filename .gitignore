@@ -190,3 +190,6 @@ wildfirearea/.Rhistory
 wildfirearea/.Rhistory
 wildfirearea/.Rhistory
 wildfirearea/.RData
+
+# ignore test files
+**/test.py
