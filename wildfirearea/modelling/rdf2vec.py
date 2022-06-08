@@ -12,37 +12,50 @@ representation using the RDF2Vec algorithm:
     - ID: Associated ID of grid cell.
 
 The script contains three main methods. The first method is the dataPreparation method
-which splits the edge dataframe into a training dataframe
+which splits the edge dataframe into a training datafram grouping the dataframe to the
+column year and a transformation dataframe grouping to the columns year and id.
+The second script is the kgTraining method in which the training dataframe is grouping
+to the year 
 
 Input:
+    - Path to edge dataframe in format dir/.../file
+    - Distance of node to other node
+    - maximum number of walks
 
 Output:
+    - Transformer models in format of pickle file
+    - Vector representation of grid cell IDs in format of pickle file
 
 '''
 # import packages
 import pandas as pd
 import numpy as np
 import pickle
+import random
 from tqdm import tqdm
 from pathlib import Path
-from pyrdf2vec import RDF2VecTransformer
-from pyrdf2vec.embedders import Word2Vec
-from pyrdf2vec.graphs import KG, Vertex
-from pyrdf2vec.walkers import RandomWalker
+from igraph import Graph
+from itertools import groupby
+import multiprocessing as mp
+from gensim.models.word2vec import Word2Vec as W2V
 
 
 class kgEmbedding:
 
-    def __init__(self, dataPath):
+    def __init__(self, dataPath, distance, maxWalks):
         # transform string to Path structure
         self.dataPath = Path(dataPath)
+        # assign distance variable to class variable
+        self.distance = distance
+        # assign maximum walks to embedding structure
+        self.maxWalks = maxWalks
         # create logging directory Path name based on file name
         loggingDirectory = Path(f'wildfirearea/modelling/KnowledgeGraph/{self.dataPath.stem}')
         # create logging directory
         loggingDirectory.mkdir(exist_ok=True)
         # create training and transform dataframe for two differrent phases
         trainingDf, transformDf = self.dataPreparation()
-        # extract file dictionary containing transformer path
+        # extract file dictionary containing transformer pathS
         fileDict = self.kgTraining(trainingDf, loggingDirectory)
         # extract result dictionary with ID and corresponding year
         resultDict = self.kgTransformer(transformDf, fileDict)
@@ -65,64 +78,102 @@ class kgEmbedding:
         # return trainingDf and transformDf dataframe
         return trainingDf, transformDf
 
+    def predicateGeneration(self, pathList):
+        # assign class graph to graph variable
+        graph = self.graph
+        # extract description of edge given edge id stored in numpy
+        predValues = np.array([e.attributes()['description'] for e in graph.es(pathList)])
+        # extract node sequences that are part of the edge path and flatten numpy array
+        nodeSequence = np.array([graph.vs().select(e.tuple).get_attribute_values('name') for e in graph.es(pathList)]).flatten()
+        # delete consecutive character values in numpy array based from prior matrix
+        nodeSequence = np.array([key for key, _group in groupby(nodeSequence)])
+        # combine description values and node sequences to one single array
+        pathSequence = np.insert(predValues, np.arange(len(nodeSequence)), nodeSequence)
+        # convert numpy array to list 
+        pathSequence = pathSequence.tolist()
+        # return path sequence numpy array
+        return pathSequence
+
+
+    def walkIteration(self, idNumber):
+        # assign class graph variable to local graph variable
+        graph = self.graph
+        # assign class maxWalks variable to local maxWalks variable
+        maxWalks = self.maxWalks
+        # extract index of graph node
+        nodeIndex = graph.vs.find(idNumber).index
+        # perform breadth-first search algorithm
+        bfsList = graph.bfsiter(nodeIndex, 'out', advanced=True)
+        # iterate over breadth-first search iterator object to filter those paths out
+        # defined distance variable
+        distanceList = [nodePath for nodePath in bfsList if nodePath[1] <= self.distance]
+        # create vertex list from distance list extracting vertex element
+        vertexList = [vertexElement[0] for vertexElement in distanceList]
+        # limit maximum walks to maximum length of walkSequence length
+        if len(vertexList) < maxWalks: maxWalks = len(vertexList)
+        # random sample defined maximumWalk from vertexList list
+        random.seed(15)
+        vertexList = random.sample(vertexList, maxWalks)
+        # compute shortest path from focused node index to extracted vertex list outputting edge ID
+        shortestPathList = graph.get_shortest_paths(v=nodeIndex, to=vertexList, output='epath')
+        # extract walk sequences with edge id to generate predicates
+        walkSequence = list(map(self.predicateGeneration, shortestPathList))
+        # return walkSequence list
+        return walkSequence
 
     def kgTraining(self, trainingDf, loggingPath):
         print('KG Embedding Training')
-        #initalize rdf2vec transformer dictionary
-        transformerDict = {}
+        #initalize Word2Vec model path dictionary
+        modelPathDict = {}
         # build knowledge graph
-        for index, row in tqdm(trainingDf.iterrows(), total=trainingDf.shape[0]):
+        for index, row in tqdm(trainingDf.iterrows(), total=trainingDf.shape[0], desc='Year iteration'):
             # transform row of type list into dictionary to store into a dataframe with unique rows
             rowValuesDf = pd.DataFrame(dict(row)).drop_duplicates(ignore_index=True)
             # extract entities from column from
             entities = pd.unique(rowValuesDf.pop('ID'))
             # transform values of row values dataframe into list
-            rowValues = rowValuesDf.values.tolist()
+            rowValues = rowValuesDf.to_records(index=False)
             # initialize Knowledge Graph
-            osmKG = KG()
-            # create subject, predicate and object and append it to walk
-            for rowValue in tqdm(rowValues, leave=False):
-                subj = Vertex(rowValue[0])
-                obj = Vertex(rowValue[1])
-                pred = Vertex(rowValue[2], predicate=True, vprev=subj, vnext=obj)
-                osmKG.add_walk(subj, pred, obj)
-            # build transformer
-            transformer = RDF2VecTransformer(
-                Word2Vec(epochs=20),
-                walkers=[RandomWalker(14, 36, with_reverse=False, n_jobs=6)],
-                verbose=1
-            )
-            # extract walks
-            extractedWalks = transformer.get_walks(osmKG, entities)
-            # extract embeddings
-            transformer.fit(extractedWalks)
-            # save transformer model
-            transformerPath = f'{str(loggingPath)}/transformer{index}.pkl'
-            transformer.save(transformerPath)
+            self.graph = Graph().TupleList(rowValues, directed=True, edge_attrs=['description'])
+            # initialize multiprocessing pool with cpu number
+            pool = mp.Pool(mp.cpu_count())
+            # extract walk predicates using the walkIteration method 
+            walkPredicateList = list(tqdm(pool.imap_unordered(self.walkIteration, entities, chunksize=8), desc='Walk Extraction', total=len(entities)))
+            # close multiprocessing pool
+            pool.close()
+            # build up corpus on extracted walks
+            corpus = [walk for entity_walks in walkPredicateList for walk in entity_walks]
+            # initialize Word2Vec model
+            model = W2V(min_count = 0, workers=1, seed=15)
+            # pass corpus to build vocabolary for Word2Vec model
+            model.build_vocab(corpus)
+            # train Word2Vec model on corpus
+            model.train(corpus, total_examples=model.corpus_count, epochs=10)
+            # save trained model
+            modelPath = f'{str(loggingPath)}/transformer{index}.model'
+            model.save(modelPath)
+            # delete variable with large memory consumption
+            del corpus, walkPredicateList, model
             # append created path to dictionary
-            transformerDict[index] = transformerPath
-        return transformerDict
+            modelPathDict[index] = modelPath
+        return modelPathDict
 
     def kgTransformer(self, transformDf, fileDict):
         print('Transformation started')
         resultDict = {}
-        for index, row in tqdm(transformDf.iterrows(), total=transformDf.shape[0]):
+        for index, row in tqdm(transformDf.iterrows(), total=transformDf.shape[0], desc='Year-ID iteration'):
             year = index[0]
-            rowValuesDf = pd.DataFrame(dict(row)).drop_duplicates(ignore_index=True)
             entity = index[1]
-            rowValues = rowValuesDf.values.tolist()
-            osmKG = KG()
-             # build transformer
-            fileName = fileDict[year]
-            transformer = RDF2VecTransformer.load(fileName)
-            for rowValue in tqdm(rowValues, leave=False):
-                subj = Vertex(rowValue[0])
-                obj = Vertex(rowValue[1])
-                pred = Vertex(rowValue[2], predicate=True, vprev=subj, vnext=obj)
-                osmKG.add_walk(subj, pred, obj)
-            entitiesVector, literals = transformer.fit_transform(osmKG, entity)
-            resultDict[index] = {'vector': entitiesVector, 'literals': literals}
+            modelFilePath = fileDict[year]
+            model = W2V.load(modelFilePath)
+            if not all(entity in model.wv):
+                raise ValueError(
+                    "The entities must have been provided to fit() first "
+                    "before they can be transformed into a numerical vector."
+                )
+            entityVector = model.wv.get_vector(entity)
+            resultDict[index] = {'vector': entityVector}
         return resultDict
 
 if __name__ == '__main__':
-    kgEmbedding('data/network/openstreetmapGraph.csv')
+    kgEmbedding('data/network/openstreetmapGraph.csv', 4, 1024)
