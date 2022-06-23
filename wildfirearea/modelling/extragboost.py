@@ -20,17 +20,19 @@ Output:
 
 '''
 # import packages
+import argparse
+import matplotlib.pyplot as plt
 import pandas as pd
+import pickle
 from pathlib import Path
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, roc_curve
 from skopt import BayesSearchCV
-from skopt.space.space import Real, Categorical, Integer
+from skopt.space.space import Real, Integer
 from imblearn.over_sampling import RandomOverSampler
-import pickle
 import xgboost as xgb
 
 
@@ -63,9 +65,13 @@ class modelPrediction:
     def dataPreprocess(self):
         print('Data Preprocessing')
         # read file into dataframe
-        data = pd.read_csv(self.dataPath)
+        data = pd.read_csv(self.dataPath,)
         # transform DATE column into datetime
         data['DATE'] = pd.to_datetime(data['DATE'])
+        # check if column osmCluster is present in dataframe
+        if 'osmCluster' in data.columns:
+            # change datatype of column osmCluster to categorical data type
+            data = data.astype({'osmCluster':'object'})
         # split data into train and testset based on specified date
         # create train dataframe which is under specified date
         trainData = data[data['DATE'] < self.testDate]
@@ -182,9 +188,11 @@ class modelPrediction:
         dataTestX = testData[0]
         dataTestY = testData[1]
         # specify extra gradient boosting classifier
-        xgbCl = xgb.XGBClassifier(**parameterSettings, objective="binary:logistic", seed=15, n_jobs=-2)
+        xgbCl = xgb.XGBClassifier(**parameterSettings, objective="binary:logistic", seed=15, n_jobs=-6)
         # fit specified model to training data
         xgbCl.fit(dataTrainX, dataTrainY)
+        # store model
+        xgbCl.save_model(f'{str(self.loggingPath)}/trainedModel.json')
         # perform prediction on test dataset with trained model
         predClass = xgbCl.predict(dataTestX)
         # calculate probability for AUC calculation
@@ -194,11 +202,44 @@ class modelPrediction:
         # print confusion matrix of classification
         print(f'Confusion matrix:\n{confusion_matrix(dataTestY, predClass)}')
         # print AUC metric
-        print(f'AUC Score:\n{roc_auc_score(dataTestY, predProb)}')
+        aucScore = roc_auc_score(dataTestY, predProb)
+        print(f'AUC Score:\n{aucScore}')
         # print classification report
         print(f'Model score:\n{classification_report(dataTestY, predClass)}')
-        
+        # save roc_curve
+        # extract false positive and true positive value series
+        fp, tp, _ = roc_curve(dataTestY,  predProb)
+        # construct roc curve plot
+        # initialize matplotlib figure
+        plt.figure()
+        # add roc curve to matplotlib figure
+        plt.plot(fp, tp, label=f"ROC Curve (AUC={aucScore})", color='dimgray', lw=2)
+        # add line regarding random performance
+        plt.plot([0, 1], [0, 1], color="darkgrey", lw=2, label=f"Random guess", linestyle="--")
+        # add limitations to x- and y-axis
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        # add labels to x-axis and y-axis
+        plt.ylabel('True Positive Rate')
+        plt.xlabel('False Positive Rate')
+        plt.legend(loc="lower right")
+        # save roc-curve plot
+        plt.savefig(f'{str(self.loggingPath)}/rocCurve.png')
 
 
 if __name__ == '__main__':
-    model = modelPrediction(validation=False, dataPath='data/usecase/usecase2.csv', testDate='2020-01-01')
+    # initialize the command line argparser
+    parser = argparse.ArgumentParser(description='XGBoost argument parameters')
+    # add validation argument parser
+    parser.add_argument('-v', '--validation', default=False, action='store_true',
+    help="use parameter if grid parameter search should be performed")
+    # add path argument parser
+    parser.add_argument('-p', '--path', type=str, required=True,
+    help='string value to data path')
+    # add date argument parser
+    parser.add_argument('-d', '--date', type=str, required=True,
+    help='date value for train test split', default='2020-01-01')
+    # store parser arguments in args variable
+    args = parser.parse_args()
+    # Pass arguments to class function to perform xgboosting
+    model = modelPrediction(validation=args.validation, dataPath=args.path, testDate=args.date)

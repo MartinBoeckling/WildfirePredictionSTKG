@@ -28,6 +28,7 @@ Output:
 
 '''
 # import packages
+import argparse
 import pandas as pd
 import numpy as np
 import pickle
@@ -37,26 +38,34 @@ from pathlib import Path
 from igraph import Graph
 from itertools import groupby
 import multiprocessing as mp
+import re
 from gensim.models.word2vec import Word2Vec as W2V
 
 
 class kgEmbedding:
 
-    def __init__(self, dataPath, distance, maxWalks):
+    def __init__(self, dataPath, distance, maxWalks, train):
         # transform string to Path structure
         self.dataPath = Path(dataPath)
         # assign distance variable to class variable
         self.distance = distance
-        # assign maximum walks to embedding structure
+        # assign maximum walks to class variable
         self.maxWalks = maxWalks
+        # assign train to class variable
+        self.train = train
         # create logging directory Path name based on file name
         loggingDirectory = Path(f'wildfirearea/modelling/KnowledgeGraph/{self.dataPath.stem}')
         # create logging directory
         loggingDirectory.mkdir(exist_ok=True)
         # create training and transform dataframe for two differrent phases
         trainingDf, transformDf = self.dataPreparation()
-        # extract file dictionary containing transformer pathS
-        fileDict = self.kgTraining(trainingDf, loggingDirectory)
+        if self.train:
+            # extract file dictionary containing transformer pathS
+            fileDict = self.kgTraining(trainingDf, loggingDirectory)
+        else:
+            loggingFiles = list(loggingDirectory.glob('transformer*.model'))
+            years = [re.findall(r'\d+', str(loggingFile))[0] for loggingFile in loggingFiles]
+            fileDict = dict(zip(years, loggingFiles))
         # extract result dictionary with ID and corresponding year
         resultDict = self.kgTransformer(transformDf, fileDict)
         print('Write result')
@@ -74,7 +83,7 @@ class kgEmbedding:
         # group graphData to a year stored in list
         trainingDf = graphData.groupby('YEAR')[['from', 'to', 'description', 'ID']].agg(list)
         # group graphData to year and ID stored in list
-        transformDf = graphData.groupby(['YEAR', 'ID'])[['from', 'to', 'description']].agg(list)
+        transformDf = graphData.groupby(['YEAR'])[['ID']].agg(list)
         # return trainingDf and transformDf dataframe
         return trainingDf, transformDf
 
@@ -160,20 +169,34 @@ class kgEmbedding:
 
     def kgTransformer(self, transformDf, fileDict):
         print('Transformation started')
+        # initialize result dictionary
         resultDict = {}
-        for index, row in tqdm(transformDf.iterrows(), total=transformDf.shape[0], desc='Year-ID iteration'):
-            year = index[0]
-            entity = index[1]
-            modelFilePath = fileDict[year]
-            model = W2V.load(modelFilePath)
-            if not all(entity in model.wv):
-                raise ValueError(
-                    "The entities must have been provided to fit() first "
-                    "before they can be transformed into a numerical vector."
-                )
-            entityVector = model.wv.get_vector(entity)
-            resultDict[index] = {'vector': entityVector}
+        # iterate over given transform dataframe
+        for index, row in tqdm(transformDf.iterrows(), total=transformDf.shape[0], desc='Year iteration'):
+            rowValuesDf = pd.DataFrame(dict(row)).drop_duplicates(ignore_index=True)
+            entityList = pd.unique(rowValuesDf['ID'])
+            modelFilePath = fileDict[index]
+            model = W2V.load(str(modelFilePath))
+            entityVector = [model.wv.get_vector(entity) for entity in entityList]
+            dictEntity = dict(zip(entityList, entityVector))
+            resultDict[index] = dictEntity
         return resultDict
 
 if __name__ == '__main__':
-    kgEmbedding('data/network/openstreetmapGraph.csv', 4, 1024)
+    # initialize the command line argparser
+    parser = argparse.ArgumentParser(description='RDF2Vec argument parameters')
+    # add train argument parser
+    parser.add_argument('-t', '--train', default=False, action='store_true',
+    help="use parameter if training should be performed")
+    # add path argument parser
+    parser.add_argument('-p', '--path', type=str, required=True,
+    help='string value to data path')
+    # add distance argument parser
+    parser.add_argument('-d', '--distance', type=int, required=True,
+    help='walk distance from selected node')
+    # add walk number argument parser
+    parser.add_argument('-w', '--walknumber', type=int, required=True,
+    help='maximum walk number from selected node')
+    # store parser arguments in args variable
+    args = parser.parse_args()
+    kgEmbedding(args.path, args.distance, args.walknumber, args.train)
