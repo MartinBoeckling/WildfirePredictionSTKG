@@ -1,7 +1,8 @@
 'Data Preparation script
 
 Description: This script prepares the data for the fourth phase of the CRISP-DM
-process, the modelling phase. The script transforms the data necessary for the '
+process, the modelling phase. The script transforms the data necessary for the 
+modelling part of the master thesis. '
 # import packages --------------------------------------------------------------
 library(automap)
 library(BAMMtools)
@@ -524,7 +525,6 @@ sampleDate <- sort(sample(interpolateDateSequence,
                           size = round(0.2*length(interpolateDateSequence))))
 
 # determine cores to be used for multiprocessing
-
 if (.Platform$OS.type == "windows") {
   warning('Due to Windows as OS no multiprocessing possible')
   cores <- 1
@@ -557,6 +557,21 @@ maxWDMV <- 1075.47
 ### Evaporation ----------------------------------------------------------------
 minEvap <- 0
 maxEvap <- 349.73
+
+## Landscape -------------------------------------------------------------------
+'
+If the variable landscapeClassMain is set to true, the main class is used. If
+the variable is set to false, the fine granulated sub class is used from the
+NLCD dataset
+'
+landscapeClassMain <- TRUE
+
+## Network ---------------------------------------------------------------------
+'
+If the variable is set to True, a reverse connection to created network relations
+are build
+'
+networkReverse <- FALSE
 
 # Grid creation ----------------------------------------------------------------
 'Grid consisting of hexagonal grid cells. '
@@ -877,18 +892,20 @@ for (indicatorColumn in indicatorColumns) {
 #### Kriging Interpolation -----------------------------------------------------
 # create kriging dataframe to specify parameters
 
-krigingDf <- data.frame('column' = c('TMAX', 'TMIN', 'TAVG', 'TOBS',
-                                     'PRCP', 'SNOW', 'SNWD', 'MNPN',
-                                     'MXPN', 'WESD', 'AWND', 'WDMV',
-                                     'WSF2', 'WSF5', 'WESF'),
-                        'minValue' = c(minTemperature, minTemperature, minTemperature, minTemperature,
+krigingDf <- data.frame('column' = c('EVAP', 'TMAX', 'TMIN', 'TAVG',
+                                     'TOBS', 'PRCP', 'SNOW', 'SNWD',
+                                     'MNPN', 'MXPN', 'WESD', 'AWND',
+                                     'WDMV', 'WSF2', 'WSF5', 'WESF'),
+                        'minValue' = c(minEvap, minTemperature, minTemperature, minTemperature, minTemperature,
                                        minPrcp, minSNOW, minSNWD, minTemperature,
                                        minTemperature, minSNWD, minWindSpeed, minWDMV,
                                        minWindSpeed, minWindSpeed, minSNOW),
-                        'maxValue' = c(maxTemperature, maxTemperature, maxTemperature, maxTemperature,
+                        'maxValue' = c(maxEvap, maxTemperature, maxTemperature, maxTemperature, maxTemperature,
                                        maxPrcp, maxSNOW, maxSNWD, maxTemperature,
                                        maxTemperature, maxSNWD, maxWindSpeed, maxWDMV,
                                        maxWindSpeed, maxWindSpeed, maxSNOW))
+
+krigingDf$validation <- TRUE
 
 wdfColumns <- weather %>%
   dplyr::select(contains('WDF') & !contains('ATTRIBUTES')) %>%
@@ -896,9 +913,10 @@ wdfColumns <- weather %>%
 
 wdfDf <- data.frame('column' = wdfColumns,
                     'minValue' = 0,
-                    'maxValue' = 31)
+                    'maxValue' = 31,
+                    'validation' = FALSE)
 
-krigingDf <- rbind(krigingDf, wdfColumns)
+krigingDf <- rbind(krigingDf, wdfDf)
 
 # iterate over kriging dataframe rows to perform interpolation
 for (row in 1:nrow(krigingDf)) {
@@ -912,22 +930,26 @@ for (row in 1:nrow(krigingDf)) {
   valueMax <- rowValues %>%
     dplyr::pull('maxValue')
   print(interpolateColumn)
-  print('Validation started')
-  # start validation to determine best kriging formula
-  validationList <- pbmclapply(sampleDate,
-                             function(x) krigeValidation(weather, interpolateColumn, x,
-                                                         valueMin, valueMax),
-                             mc.cores=cores)
-  # transform list of dataframes to single dataframe
-  validationDf <- data.table::rbindlist(validationList)
-  # save RDS with single validation dataframe
-  saveRDS(validationDf, paste0('data/interpolation/validation/', interpolateColumn, '.rds'))
-  # aggregate RMSE values to extract most optimal kriging formula
-  krigingFormula <- validationDf %>%
-    group_by(formula) %>%
-    summarise(meanRMSE = mean(rmse)) %>%
-    slice(which.min(meanRMSE)) %>%
-    pull(formula)
+  if (rowValues$validation){
+    print('Validation started')
+    # start validation to determine best kriging formula
+    validationList <- pbmclapply(sampleDate,
+                                 function(x) krigeValidation(weather, interpolateColumn, x,
+                                                             valueMin, valueMax),
+                                 mc.cores=cores)
+    # transform list of dataframes to single dataframe
+    validationDf <- data.table::rbindlist(validationList)
+    # save RDS with single validation dataframe
+    saveRDS(validationDf, paste0('data/interpolation/validation/', interpolateColumn, '.rds'))
+    # aggregate RMSE values to extract most optimal kriging formula
+    krigingFormula <- validationDf %>%
+      group_by(formula) %>%
+      summarise(meanRMSE = mean(rmse)) %>%
+      slice(which.min(meanRMSE)) %>%
+      pull(formula)
+  } else{
+    krigingFormula <- paste(interpolateColumn, '~ 1')
+  }
   print('Kriging started')
   # perform kriging based on column and minimum and maximum values
   krigingPredList <- pbmclapply(interpolateDateSequence,
@@ -985,7 +1007,7 @@ hexGridSf <- sf::st_as_sf(hexGrid, crs=prjLonLat)
 # join hexGrid with Centroid Dataframe
 hexGridSf <- hexGridSf %>%
   sf::st_join(hexGridCentroidsSf)
-## Landscape -------------------------------------------------------------------
+-## Landscape -------------------------------------------------------------------
 # read data files
 landscapeFiles <- list.files(path = 'data/landCover', pattern = '.tif$', full.names = TRUE)
 # create raster stack for all landscape files
@@ -999,8 +1021,8 @@ landscapeLegend <- data.frame('value' = c(0, 11, 12, 21, 22, 23, 24, 31, 41, 42,
                                               'Developed', 'Barren', 'Forest',
                                               'Forest', 'Forest', 'Shrubland',
                                               'Shrubland', 'Herbaceous', 'Herbaceous',
-                                              'Herbaceous', 'Herbaceous', 'Planted/Cultivated	',
-                                              'Planted/Cultivated	', 'Wetlands', 'Wetlands'),
+                                              'Herbaceous', 'Herbaceous', 'Planted/Cultivated',
+                                              'Planted/Cultivated', 'Wetlands', 'Wetlands'),
                               'subClass' = c('Unclassified', 'Open Water', 'Perennial Ice/Snow',
                                              'Developed, Open Space', 'Developed, Low Intensity',
                                              'Developed, Medium Intensity', 'Developed High Intensity',
@@ -1009,6 +1031,16 @@ landscapeLegend <- data.frame('value' = c(0, 11, 12, 21, 22, 23, 24, 31, 41, 42,
                                              'Shrub/Scrub', 'Grassland/Herbaceous', 'Sedge/Herbaceous',
                                              'Lichens', 'Moss', 'Pasture/Hay', 'Cultivated Crops',
                                              'Woody Wetlands', 'Emergent Herbaceous Wetlands'))
+# subset column based on aggregate level
+if(landscapeClassMain){
+  landscapeLegend <- landscapeLegend %>%
+    mutate(class = mainClass) %>%
+    dplyr::select(value, class)
+} else{
+  landscapeLegend <- landscapeLegend %>%
+    mutate(class = subClass) %>%
+    dplyr::select(value, class)
+}
 
 # calculate area of categories in each hexagon grid cell
 for (layer in 1:length(landscapeData@layers)) {
@@ -1039,7 +1071,7 @@ for (layer in 1:length(landscapeData@layers)) {
     # exclude main class, coverage fraction and value column
     dplyr::select(-c(mainClass, coverage_fraction, value)) %>%
     # pivot rows into columns based on grid cell ID
-    tidyr::pivot_wider(names_from = subClass,
+    tidyr::pivot_wider(names_from = class,
                        values_from = area,
                        values_fill = 0)
   # save RDS file with aggregated landscape raster values per hexagon cell ID
@@ -1085,7 +1117,8 @@ hexGridRelationDf <- data.table::rbindlist(hexGridRelationList)
 
 duplicateRows <- apply(hexGridRelationDf[,1:2], 1, function(x) length(unique(x[!is.na(x)])) != 1)
 hexGridRelationDf <- hexGridRelationDf[duplicateRows,]
-
+hexGridRelationDf <- hexGridRelationDf %>%
+  mutate(ID = from)
 
 
 
@@ -1094,8 +1127,8 @@ coastDistanceBreaks <- getJenksBreaks(hexGridSf$COASTDISTANCE, k=6)
 
 hexGridSfTransform <- hexGridSf
 
-hexGridSfTransform$ELEVATION <- cut(hexGridSf$ELEVATION, breaks=elevationBreaks, labels=c('low', 'low-medium', 'medium', 'medium-high', 'high'))
-hexGridSfTransform$COASTDISTANCE <- cut(hexGridSf$COASTDISTANCE, breaks=coastDistanceBreaks, labels=c('low', 'low-medium', 'medium', 'medium-high', 'high'))
+hexGridSfTransform$ELEVATION <- cut(hexGridSf$ELEVATION, breaks=elevationBreaks, labels=c('low elevation', 'low-medium elevation', 'medium elevation', 'medium-high elevation', 'high elevation'))
+hexGridSfTransform$COASTDISTANCE <- cut(hexGridSf$COASTDISTANCE, breaks=coastDistanceBreaks, labels=c('low coastdistance', 'low-medium coastdistance', 'medium coastdistance', 'medium-high coastdistance', 'high coastdistance'))
 
 gridColumnRelation <- as.data.frame(hexGridSfTransform) %>%
   dplyr::select(-geometry) %>%
@@ -1158,6 +1191,7 @@ openstreetDf <- data.frame('class' = c('bbq', 'childcare', 'kindergarten', 'moto
 
 hexGridSf <- st_transform(hexGridSf, crs=prjMeter)
 openstreetmapGraphEdge <- data.frame()
+
 for (filePath in openstreetmapFiles){
   # split path into list for each slashes
   pathSplit <- strsplit(filePath, '/')[[1]]
@@ -1166,9 +1200,13 @@ for (filePath in openstreetmapFiles){
   # extract category of object
   objectCategory <- pathSplit[4]
   # build class relation of geometry object
-  classRelation <- data.frame('from' = c(mainClass, objectCategory),
-                              'to' = c(objectCategory, mainClass),
-                              'description' = c('mainClassOf', 'subClassOf'))
+  classRelation <- data.frame('from' = mainClass,
+                              'to' = objectCategory,
+                              'description' = 'mainClassOf')
+  # build sub class dataframe to build 
+  subClassRelation <- data.frame('from' = objectCategory,
+                                 'to' = mainClass,
+                                 'description' = 'subClassOf')
   # extract file name
   fileName <- strsplit(pathSplit[5], split = '[.]')[[1]][1]
   # extract year
@@ -1191,12 +1229,15 @@ for (filePath in openstreetmapFiles){
     
     if (!'osm_id' %in% colnames(geometryObject)){
       geometryObject <- geometryObject %>%
-        rownames_to_column('osm_id')
+        tibble::rownames_to_column('osm_id')
     }
     # determine object relation by pairwise combination
     objectClassRelation <- expand.grid(objectCategory, geometryObject$osm_id) %>%
       rename('from' ='Var1', 'to' = 'Var2') %>%
       mutate(description = 'mainCategoryOf')
+    classObjectRelation <- expand.grid(geometryObject$osm_id, objectCategory) %>%
+      rename('from' ='Var1', 'to' = 'Var2') %>%
+      mutate(description = 'elementOf')
     if (length(geometryObject) >  2){
       # determine values based on columns
       objectColumnRelation <- as.data.frame(geometryObject) %>%
@@ -1207,7 +1248,9 @@ for (filePath in openstreetmapFiles){
         rename('from' = 'osm_id') %>%
         dplyr::select(from, to, description)  
     } else{
-      objectColumnRelation <- data.frame()
+      objectColumnRelation <- data.frame('from'=character(),
+                                         'to'=character(),
+                                         'description'=character())
     }
     
     # transform object into lonlat projection
@@ -1216,24 +1259,82 @@ for (filePath in openstreetmapFiles){
     gridRelation <- predicateDetermination(hexGridSf, geometryObject)
     gridRelationList <- pbmclapply(gridRelation, function(x) edgeBuilding(x, hexGridSf, geometryObject),
                                    mc.cores=cores)
-    
+    gridRelationDf <- data.table::rbindlist(gridRelationList)
+    gridRelationDf$ID <- gridRelationDf$from
     objectRelation <- predicateDetermination(geometryObject, hexGridSf)
     
     objectRelationList <- pbmclapply(objectRelation, function(x) edgeBuilding(x, geometryObject, hexGridSf),
                                      mc.cores=cores)
     
-    relationList <- append(gridRelationList, objectRelationList)
-    relationDf <- data.table::rbindlist(relationList)
-    relationDf <- bind_rows(relationDf, classRelation, objectClassRelation, objectColumnRelation)
+    objectRelationDf <- data.table::rbindlist(objectRelationList)
+    objectRelationDf$ID <- objectRelationDf$to
+    
+    if (networkReverse){
+      relationDf <- bind_rows(gridRelationDf, objectRelationDf)
+      classRelation <- bind_rows(classRelation, subClassRelation)
+    } else{
+      relationDf <- gridRelationDf
+      classRelation <- subClassRelation
+    }
+
+    
+    uniqueGridCellId <- unique(relationDf$ID)
+    
+    uniqueGridCellIdRepl <- rep(uniqueGridCellId, nrow(classRelation))
+    
+    classRelation <- classRelation %>%
+      slice(rep(1:n(), length(uniqueGridCellId))) %>%
+      mutate(ID = uniqueGridCellIdRepl)
+    
+    relationGridJoin <- gridRelationDf %>%
+      group_by(from) %>%
+      distinct(to) %>%
+      rename('ID' =  'from')
+    
+    objectClassRelation <- objectClassRelation %>%
+      left_join(relationGridJoin, by='to')
+    
+    classObjectRelation <- classObjectRelation %>%
+      left_join(relationGridJoin, by=c('from'='to'))
+    
+    objectColumnRelation <- objectColumnRelation %>%
+      left_join(relationGridJoin, by=c('from' = 'to'))
+    
+    if(networkReverse){
+      relationDf <- bind_rows(relationDf, classRelation, classObjectRelation,
+                              objectClassRelation, objectColumnRelation)
+    } else {
+      relationDf <- bind_rows(relationDf, classRelation, classObjectRelation,
+                              objectColumnRelation)
+    }
     relationDf$YEAR <- osmYear
     openstreetmapGraphEdge <- bind_rows(openstreetmapGraphEdge, relationDf)
     rm(classRelation, geometryObject, gridRelation, gridRelationList, objectClassRelation,
-       objectColumnRelation, objectRelation, objectRelationList, relationDf, relationList,
-       rowValues)
+       objectColumnRelation, objectRelation, objectRelationList, relationDf, rowValues,
+       relationGridJoin, objectRelationDf, gridRelationDf, uniqueGridCellIdRepl,
+       classObjectRelation, subClassRelation)
     gc()
   }
 }
-saveRDS(openstreetmapGraphEdge, 'data/network/openstreetmap/edgeDataframe.rds')
+
+
+uniqueYear <- unique(openstreetmapGraphEdge$YEAR)
+
+hexGridRelationList <- lapply(uniqueYear, function(x){
+  hexGridRelationDf$YEAR <- x
+  return(hexGridRelationDf)
+})
+
+hexGridRelationYear <- data.table::rbindlist(hexGridRelationList)
+
+openstreetmapGraphEdge <- bind_rows(openstreetmapGraphEdge, hexGridRelationYear)
+
+if(networkReverse){
+  fwrite(openstreetmapGraphEdge, 'data/network/openstreetmapGraph.csv')
+} else{
+  fwrite(openstreetmapGraphEdge, 'data/network/openstreetmapGraphSimplified.csv')
+}
+
 
 ## Wildfire --------------------------------------------------------------------
 wildfire <- readRDS('data/wildfire/wildfire.rds')
@@ -1303,6 +1404,7 @@ saveRDS(landscapeEdgeDf, 'data/network/landscapeEdgeDf.rds')
 ### IDW Interpolation ----------------------------------------------------------
 
 weatherIdwDf <- data.frame()
+idwInterpolationList <- list.files('data/interpolation/idw', full.names = TRUE)
 # join data for weather variables
 for (idwIteration in 1:length(idwInterpolationList)){
   print(paste(idwIteration, 'of', length(idwInterpolationList), 'iteration'))
@@ -1314,9 +1416,21 @@ for (idwIteration in 1:length(idwInterpolationList)){
     weatherIdwDf <- weatherIdwDf %>%
       left_join(interpolateData, by=c('ID', 'DATE', 'geometry'))
   }
+  rm(idwData)
+  gc()
 }
 
+# bin data based on column category
+weatherCategory <- data.frame('Column' = c('TMAX', 'TMIN', 'TOBS', 'TAVG'),
+                              'Category' = c('Temperature', 'Temperature', 'Temperature', 'Temperature'))
 
-weatherDf
+test <- weatherIdwDf %>%
+  # dplyr::select(-c(DATE)) %>%
+  pivot_longer(cols = -c('ID', 'DATE'),
+               names_to = 'description',
+               values_to = 'to') %>%
+  rename('from' = 'ID') %>%
+  dplyr::select(from, to, description)
 
-  
+### Kriging Interpolation ------------------------------------------------------
+

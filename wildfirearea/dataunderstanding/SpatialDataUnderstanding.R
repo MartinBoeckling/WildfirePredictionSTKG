@@ -79,7 +79,7 @@ heatmapDatePlot <- function(df, column, minValue, maxValue, funString, xaxisDesc
   stopifnot('Input column needs to be present in input dataframe' = column %in% colnames(df))
   aggFun <- parse(text = funString)
   df %>%
-    select(DATE, !!as.symbol(column)) %>%
+    dplyr::select(DATE, !!as.symbol(column)) %>%
     filter(!!as.symbol(column) <= maxValue & !!as.symbol(column) >= minValue) %>%
     mutate(MONTH = month(DATE), YEAR = year(DATE)) %>%
     group_by(MONTH, YEAR) %>%
@@ -100,6 +100,11 @@ downsampledLandCover <- st_downsample(landCover, 10)
 landCoverDf <- as.data.frame(downsampledLandCover)
 landCoverDf$band <- recode(landCoverDf$band, '1' = '2001', '2' = '2004', '3' = '2006', '4' = '2008',
                     '5' = '2011', '6' = '2013', '7' = '2016', '8' = '2019')
+
+NAWeatherDf <- data.frame(NAFraction =
+                     sapply(weather, function(column) sum(is.na(column))/nrow(df))
+)
+
 # plot missing values over each column
 NAColumnPlot(landCoverDf)
 
@@ -164,13 +169,20 @@ day. The columns in the dataset can be categorized into three groups:
 
 # read in weather data from csv file
 weather <- data.table::fread('~/GitHub/wildfirearea/data/weather/weather.csv')
+weather <- weather %>%
+  filter(DATE >= as.Date('2010-01-01'))
 ## NA Overview -----------------------------------------------------------------
 # exclude related attributes of weather variables
 weather <- weather %>%
-  select(!contains('ATTRIBUTES'))
+  dplyr::select(!contains('ATTRIBUTES'))
 # plot count of missing elements
 # extract na fraction of weather dataframe
-NAColumnPlot(weather)
+NADf <- data.frame(NAFraction =
+                     sapply(weather, function(column) sum(is.na(column))/nrow(weather))
+)
+NADf <- tibble::rownames_to_column(NADf, var = 'Column')
+
+naColumnPlot(weather)
 
 ## Variable distribution -------------------------------------------------------
 'The variable distribution related to the weather variables play a key role for 
@@ -179,14 +191,6 @@ the data preparation incorporates the interpolation of the measurements. For the
 variable the distribution builds the base to decide which interpolation method
 will be used.'
 ### Station attributes ---------------------------------------------------------
-#### Elevation
-summary(weather$ELEVATION)
-ggplot(data = weather, aes(x=ELEVATION)) +
-  geom_histogram(binwidth = 30, fill=colorPalette[1]) +
-  xlab('Elevation in meters') +
-  ylab('Count') +
-  theme_minimal()
-
 #### Distribution of stations
 # read in california boundary from shapefile
 california_boundary <- st_read('~/Github/wildfirearea/data/californiaBoundary/CA_State_TIGER2016.shp')
@@ -194,17 +198,31 @@ californiaSpol <- as_Spatial(california_boundary)
 californiaSpol <- spTransform(californiaSpol, CRS(prjLonLat))
 
 californiaSpol <- sf::st_as_sf(californiaSpol)
+
+dateSequence <- seq.Date(as.Date('2010-01-01'), as.Date('2021-12-31'), by='days')
 stationOverview <- weather %>%
-  select(STATION, LATITUDE, LONGITUDE) %>%
-  distinct()
+  dplyr::group_by(STATION, LATITUDE, LONGITUDE, ELEVATION) %>%
+  summarise(completeDate = identical(as.Date(dateSequence), as.Date(DATE)))
+
+completeDateCoverage <- stationOverview %>%
+  filter(completeDate == TRUE)
+
 nrow(stationOverview)
 
 ggplot(californiaSpol) +
   geom_sf(colour='black', fill='white') +
-  geom_point(data = stationOverview, aes(x= LONGITUDE, y=LATITUDE)) +
+  geom_point(data = stationOverview, aes(x= LONGITUDE, y=LATITUDE), size=0.6) +
   theme_minimal() +
   xlab('Longitude') +
   ylab('Latitude')
+
+#### Elevation
+summary(stationOverview$ELEVATION)
+ggplot(data = stationOverview, aes(x=ELEVATION)) +
+  geom_histogram(binwidth = 30, fill=colorPalette[1]) +
+  xlab('Elevation in meters') +
+  ylab('Count') +
+  theme_minimal()
 ### Temperature ----------------------------------------------------------------
 # general limit for temperature
 maxTemperature <- 56.67
@@ -213,7 +231,7 @@ minTemperature <- -42.78
 # print distribution statistics to console
 summary(weather$TMAX)
 # plot histogram with histogramPlot function
-histogramPlot(weather, "TMAX", minTemperature, maxTemperature, 5, 'max temperature in °C')
+histogramPlot(weather, "TMAX", minTemperature, maxTemperature, 5, 'maximum temperature in °C')
 # distribution of data over month and year
 heatmapDatePlot(weather, 'TMAX', minTemperature, maxTemperature, 'max(TMAX)', 'Month', 'Year')
 
