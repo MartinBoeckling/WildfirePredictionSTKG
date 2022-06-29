@@ -21,6 +21,14 @@
         "gplots"
       ]
     },
+    "BH": {
+      "Package": "BH",
+      "Version": "1.78.0-0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "4e348572ffcaa2fb1e610e7a941f6f3a",
+      "Requirements": []
+    },
     "DBI": {
       "Package": "DBI",
       "Version": "1.1.2",
@@ -974,6 +982,19 @@
       "Hash": "0f625c5c628af2955aef2c561413ee30",
       "Requirements": [
         "sp"
+      ]
+    },
+    "rgeoda": {
+      "Package": "rgeoda",
+      "Version": "0.0.9",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "0a6697eb7a7626a37c522dd7fad8f688",
+      "Requirements": [
+        "BH",
+        "Rcpp",
+        "digest",
+        "sf"
       ]
     },
     "rlang": {

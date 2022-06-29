@@ -16,6 +16,7 @@ library(lubridate)
 library(osmdata)
 library(pbmcapply)
 library(raster)
+library(rgeoda)
 library(sf)
 library(sp)
 library(tibble)
@@ -947,6 +948,7 @@ for (row in 1:nrow(krigingDf)) {
       summarise(meanRMSE = mean(rmse)) %>%
       slice(which.min(meanRMSE)) %>%
       pull(formula)
+    rm(validationDf, validationList)
   } else{
     krigingFormula <- paste(interpolateColumn, '~ 1')
   }
@@ -963,7 +965,7 @@ for (row in 1:nrow(krigingDf)) {
   # DATE, ID and INDEX
   invalidCell <- krigingPredDf %>%
     tibble::rownames_to_column('INDEX') %>%
-    dplyr::filter(!!as.symbol(interpolateColumn) < valueMin | !!as.symbol(interpolateColumn)> valueMax) %>%
+    dplyr::filter(!!as.symbol(interpolateColumn) < valueMin | !!as.symbol(interpolateColumn)> valueMax | is.na(!!as.symbol(interpolateColumn))) %>%
     mutate(INDEX = as.integer(INDEX)) %>%
     dplyr::select(DATE, ID, INDEX)
   print('IDW started')
@@ -995,8 +997,7 @@ for (row in 1:nrow(krigingDf)) {
   # store interpolation dataframe into RDS structure
   saveRDS(interpolateDf, paste0('data/interpolation/', interpolateColumn, '.rds'))
   # delete iteration objects to prevent memory overflow error
-  rm(interpolateDf, idwPredDf, idwPredList, krigingPredDf, krigingPredList,
-     validationDf, validationList)
+  rm(interpolateDf, idwPredDf, idwPredList, krigingPredDf, krigingPredList)
   # run garbage collector to collect unnecessary object
   gc()
 }
@@ -1416,21 +1417,116 @@ for (idwIteration in 1:length(idwInterpolationList)){
     weatherIdwDf <- weatherIdwDf %>%
       left_join(interpolateData, by=c('ID', 'DATE', 'geometry'))
   }
-  rm(idwData)
+  rm(interpolateData)
   gc()
 }
 
 # bin data based on column category
-weatherCategory <- data.frame('Column' = c('TMAX', 'TMIN', 'TOBS', 'TAVG'),
-                              'Category' = c('Temperature', 'Temperature', 'Temperature', 'Temperature'))
+weatherCategory <- data.frame('Column' = c('TMAX', 'TMIN', 'TOBS', 'TAVG',
+                                           'MNPN', 'MXPN', 'AWND', 'EVAP',
+                                           'PRCP', 'SNOW', 'SNWD', 'WDMV',
+                                           'WESD', 'WESF', 'WSF2', 'WSF5'),
+                              'Category' = c('Temperature', 'Temperature', 'Temperature', 'Temperature',
+                                             'Temperature', 'Temperature', 'WindSpeed', 'Evaporation',
+                                             'Precipitation', 'Snowfall', 'Snowdepth', 'WindMovement',
+                                             'WaterEquivalent', 'WaterEquivalent', 'WindSpeed', 'WindSpeed'))
+windDaysColumns <- weatherIdwDf %>%
+  dplyr::select(contains('WDF')) %>%
+  colnames()
 
-test <- weatherIdwDf %>%
-  # dplyr::select(-c(DATE)) %>%
+windCategory <- data.frame('Column' = windDaysColumns,
+                           'Category' = 'WindDays')
+
+weatherTypeColumns <- weatherIdwDf %>%
+  dplyr::select(contains('WT')) %>%
+  colnames()
+
+weatherTypeCategory <- data.frame('Column' = weatherTypeColumns,
+                                 'Category' = 'WeatherType')
+
+weatherCategory <- bind_rows(weatherCategory, windCategory, weatherTypeCategory)
+
+
+for(rowNumber in 1:nrow(weatherCategory)){
+  print(paste(rowNumber, 'of', nrow(weatherCategory), 'iteration'))
+  weatherRow <- weatherCategory[rowNumber, ]
+  weatherColumn <- weatherRow$Column
+  weatherRowCategory <- weatherRow$Category
+  weatherLabels <- paste(c('low', 'low-medium', 'medium', 'medium-high', 'high'),
+                         weatherRowCategory)
+  weatherValues <- weatherIdwDf %>%
+    dplyr::select(ID, DATE, all_of(weatherColumn))
+  weatherBreaks <- natural_breaks(k = 5, df = weatherValues[, ..weatherColumn])
+  weatherBreaks <- c(min(weatherValues[, ..weatherColumn] %>% pull()), weatherBreaks, max(weatherValues[, ..weatherColumn] %>% pull()))
+  weatherIdwDf[, weatherColumn]  <- cut(weatherValues %>% pull(), breaks=weatherBreaks, labels=weatherLabels, include.lowest = TRUE, right=FALSE)
+}
+
+
+weatherIdwDf[weatherIdwDf == 0] <- 'No'
+weatherIdwDf[weatherIdwDf == 1] <- 'Yes'
+
+
+weatherIdwDf <- weatherIdwDf %>%
   pivot_longer(cols = -c('ID', 'DATE'),
                names_to = 'description',
                values_to = 'to') %>%
-  rename('from' = 'ID') %>%
-  dplyr::select(from, to, description)
+  mutate(from = ID)
 
+fwrite(weatherIdwDf, 'data/network/idwNetwork.csv')
 ### Kriging Interpolation ------------------------------------------------------
+weatherKrigingDf <- data.frame()
+krigingInterpolationList <- list.files('data/interpolation', full.names = TRUE, include.dirs = FALSE,
+                                       pattern = '.rds')
+# join data for weather variables
+for (krigingIteration in 1:length(krigingInterpolationList)){
+  print(paste(krigingIteration, 'of', length(krigingInterpolationList), 'iteration'))
+  krigingData <- krigingInterpolationList[krigingIteration]
+  interpolateData <- readRDS(krigingData)
+  if (nrow(weatherKrigingDf)==0){
+    weatherKrigingDf <- interpolateData
+  }else{
+    weatherKrigingDf <- weatherKrigingDf %>%
+      left_join(interpolateData, by=c('ID', 'DATE', 'geometry'))
+  }
+  rm(interpolateData)
+  gc()
+}
+
+weatherKrigingDf <- fread('data/usecase/usecase3.csv')
+
+weatherKrigingDf <- weatherKrigingDf %>%
+  dplyr::select(-c(LANDCOVER, WILDFIRE))
+
+# bin data based on column category
+weatherCategory <- data.frame('Column' = c('TMAX', 'TMIN', 'TOBS', 'TAVG',
+                                           'MNPN', 'MXPN', 'AWND', 'EVAP',
+                                           'PRCP', 'SNOW', 'SNWD', 'WESD',
+                                           'WSF2', 'WSF5'),
+                              'Category' = c('Temperature', 'Temperature', 'Temperature', 'Temperature',
+                                             'Temperature', 'Temperature', 'WindSpeed', 'Evaporation',
+                                             'Precipitation', 'Snowfall', 'Snowdepth', 'WaterEquivalent',
+                                             'WindSpeed', 'WindSpeed'))
+windDaysColumns <- weatherKrigingDf %>%
+  dplyr::select(contains('WDF')) %>%
+  colnames()
+
+windCategory <- data.frame('Column' = windDaysColumns,
+                           'Category' = 'WindDays')
+
+weatherCategory <- bind_rows(weatherCategory, windCategory)
+
+
+for(rowNumber in 1:nrow(weatherCategory)){
+  print(paste(rowNumber, 'of', nrow(weatherCategory), 'iteration'))
+  weatherRow <- weatherCategory[rowNumber, ]
+  weatherColumn <- weatherRow$Column
+  weatherRowCategory <- weatherRow$Category
+  weatherLabels <- paste(c('low', 'low-medium', 'medium', 'medium-high', 'high'),
+                         weatherRowCategory)
+  weatherValues <- weatherKrigingDf %>%
+    dplyr::select(ID, DATE, all_of(weatherColumn))
+  weatherBreaks <- natural_breaks(k = 5, df = weatherValues[, ..weatherColumn])
+  weatherBreaks <- c(min(weatherValues[, ..weatherColumn] %>% pull()), weatherBreaks, max(weatherValues[, ..weatherColumn] %>% pull()))
+  weatherKrigingDf[, weatherColumn]  <- cut(weatherValues %>% pull(), breaks=weatherBreaks, labels=weatherLabels, include.lowest = TRUE, right=FALSE)
+}
 
