@@ -5,7 +5,6 @@ process, the modelling phase. The script transforms the data necessary for the
 modelling part of the master thesis. '
 # import packages --------------------------------------------------------------
 library(automap)
-library(BAMMtools)
 library(data.table)
 library(dplyr)
 library(exactextractr)
@@ -1110,8 +1109,11 @@ saveRDS(wildfireDf, 'data/wildfire/wildfire.rds')
 
 # DE-9IM -----------------------------------------------------------------------
 ## Hex Grid relation -----------------------------------------------------------
-
+# transform hex Grid to meter projection
+hexGridSf <- sf::st_transform(hexGridSf, crs=prjMeter)
+# generate predicates based on hex grid object
 hexGridRelation <- predicateDetermination(hexGridSf, hexGridSf)
+# get 
 hexGridRelationList <- pbmclapply(hexGridRelation, function(x) edgeBuilding(x, hexGridSf, hexGridSf),
                                mc.cores=cores)
 hexGridRelationDf <- data.table::rbindlist(hexGridRelationList)
@@ -1123,25 +1125,29 @@ hexGridRelationDf <- hexGridRelationDf %>%
 
 
 
-elevationBreaks <- getJenksBreaks(hexGridSf$ELEVATION, k=6)
-coastDistanceBreaks <- getJenksBreaks(hexGridSf$COASTDISTANCE, k=6)
+elevationBreaks <- natural_breaks(hexGridSf[,'ELEVATION'], k=5)
+elevationBreaks <- c(min(hexGridSf$ELEVATION), elevationBreaks, max(hexGridSf$ELEVATION))
+coastDistanceBreaks <- natural_breaks(hexGridSf[,'COASTDISTANCE'], k=5)
+coastDistanceBreaks <- c(min(hexGridSf$COASTDISTANCE), coastDistanceBreaks, max(hexGridSf$COASTDISTANCE))
 
 hexGridSfTransform <- hexGridSf
 
-hexGridSfTransform$ELEVATION <- cut(hexGridSf$ELEVATION, breaks=elevationBreaks, labels=c('low elevation', 'low-medium elevation', 'medium elevation', 'medium-high elevation', 'high elevation'))
-hexGridSfTransform$COASTDISTANCE <- cut(hexGridSf$COASTDISTANCE, breaks=coastDistanceBreaks, labels=c('low coastdistance', 'low-medium coastdistance', 'medium coastdistance', 'medium-high coastdistance', 'high coastdistance'))
+hexGridSfTransform$ELEVATION <- cut(hexGridSf$ELEVATION, breaks=elevationBreaks, labels=c('low elevation', 'low-medium elevation', 'medium elevation', 'medium-high elevation', 'high elevation'),
+                                    include.lowest = TRUE, right = FALSE)
+hexGridSfTransform$COASTDISTANCE <- cut(hexGridSf$COASTDISTANCE, breaks=coastDistanceBreaks, labels=c('low coastdistance', 'low-medium coastdistance', 'medium coastdistance', 'medium-high coastdistance', 'high coastdistance'),
+                                        include.lowest = TRUE, right = FALSE)
 
 gridColumnRelation <- as.data.frame(hexGridSfTransform) %>%
   dplyr::select(-geometry) %>%
   pivot_longer(cols = -any_of(c('ID', 'LONGITUDE', 'LATITUDE')),
                names_to = 'description',
                values_to = 'to') %>%
-  rename('from' = 'ID') %>%
-  dplyr::select(from, to, description)
+  mutate(from = ID) %>%
+  dplyr::select(from, to, description, ID)
 
-hexGridRelationDf <- bind_rows(hexGridRelationDf, gridColumnRelation)
+hexGridRelationEdgeDf <- bind_rows(hexGridRelationDf, gridColumnRelation)
 
-saveRDS(hexGridRelationDf, 'data/network/hexgridRelation.rds')
+saveRDS(hexGridRelationEdgeDf, 'data/network/hexgridRelation.rds')
 
 ## OpenStreet Map --------------------------------------------------------------
 openstreetmapFiles <- list.files('data/openstreetmap', pattern = '(201[0-9]|202[0-9]).osm',
@@ -1336,53 +1342,29 @@ if(networkReverse){
   fwrite(openstreetmapGraphEdge, 'data/network/openstreetmapGraphSimplified.csv')
 }
 
-
-## Wildfire --------------------------------------------------------------------
-wildfire <- readRDS('data/wildfire/wildfire.rds')
-wildfire <- sf::st_transform(wildfire, crs=prjMeter)
-wildfire <- sf::st_make_valid(wildfire)
-wildfire <- wildfire %>%
-  rownames_to_column('WildfireID') %>%
-  mutate(WildfireID = paste0('Wildfire_', WildfireID))
-
-wildfireCategoryRelation <- expand.grid('wildfire', wildfire$WildfireID) %>%
-  rename('from' ='Var1', 'to' = 'Var2') %>%
-  mutate(description = 'mainCategoryOf')
-
-wildfireCategoryRelation <- wildfireCategoryRelation %>%
-  left_join(wildfire, by=c('to' = 'WildfireID')) %>%
-  dplyr::select(from, to, description, DATE)
-
-wildfireRelation <- predicateDetermination(hexGridSf, wildfire)
-
-wildfireRelationList <- pbmclapply(wildfireRelation, function(x) edgeBuilding(x, hexGridSf, wildfire),
-                                 mc.cores=cores)
-wildfireRelationDf <- data.table::rbindlist(wildfireRelationList)
-
-wildfireRelationDf <- wildfireRelationDf%>%
-  left_join(wildfire, by=c('to' = 'WildfireID')) %>%
-  dplyr::select(from, to, description, DATE)
-
-gridWildfireRelation <- predicateDetermination(wildfire, hexGridSf)
-gridWildfireRelationList <- pbmclapply(gridWildfireRelation, function(x) edgeBuilding(x, wildfire, hexGridSf),
-                                       mc.cores=cores)
-gridWildfireRelationDf <- data.table::rbindlist(gridWildfireRelationList)
-
-gridWildfireRelationDf <-gridWildfireRelationDf %>%
-  left_join(wildfire, by=c('from' = 'WildfireID')) %>%
-  dplyr::select(from, to, description, DATE)
-
-edgeWildfireDf <- bind_rows(wildfireCategoryRelation, wildfireRelationDf, gridWildfireRelationDf)
-
-saveRDS(edgeWildfireDf, 'data/network/wildfireRelation.rds')
-
 ## Landscape -------------------------------------------------------------------
 nlcdPolygonFiles <- list.files('data/landCover/polygon', full.names = TRUE)
 landscapeEdgeDf <- data.frame()
+aggregateLandscapeEdgeDf <- data.frame()
+
 for (nlcdPath in nlcdPolygonFiles){
   nlcdYear <- as.numeric(gsub(".*?([0-9]+).*", "\\1", nlcdPath))
   print(paste('NLCD', nlcdYear))
   landscape <- readRDS(nlcdPath)
+  
+  aggregateLandscape <- landscape %>%
+    pivot_longer(!ID, names_to='description', values_to = 'to') %>%
+    group_by(ID) %>%
+    filter(to == max(to)) %>%
+    mutate(YEAR = nlcdYear, from = ID)
+  
+  aggAreaBreak <- natural_breaks(aggregateLandscape[,'to'], k=5)
+  aggAreaBreak <- c(min(aggregateLandscape$to), aggAreaBreak, max(aggregateLandscape$to))
+  aggregateLandscape$to <- cut(aggregateLandscape$to, breaks=aggAreaBreak, labels=c('low area', 'low-medium area', 'medium area', 'medium-high area', 'high area'),
+                      include.lowest = TRUE, right = FALSE)
+  
+  aggregateLandscapeEdgeDf <- bind_rows(aggregateLandscapeEdgeDf, aggregateLandscape)
+  
   landscape <- landscape %>%
     pivot_longer(cols = -any_of('ID'),
                  names_to = 'description',
@@ -1390,15 +1372,21 @@ for (nlcdPath in nlcdPolygonFiles){
     rename('from' = 'ID') %>%
     dplyr::select(from, to, description)
   
-  areaBreak <- getJenksBreaks(landscape$to, k=6)
-  landscape$to <- cut(landscape$to, breaks=areaBreak, labels=c('low', 'low-medium', 'medium', 'medium-high', 'high'))
-  landscape <- landscape %>%
-    replace_na(list(to = 'low'))
+  areaBreak <- natural_breaks(landscape[,'to'], k=5)
+  areaBreak <- c(min(landscape$to), areaBreak, max(landscape$to))
+  landscape$to <- cut(landscape$to, breaks=areaBreak, labels=c('low area', 'low-medium area', 'medium area', 'medium-high area', 'high area'),
+                      include.lowest = TRUE, right = FALSE)
+  
   landscape$YEAR <- nlcdYear
+  
   landscapeEdgeDf <- bind_rows(landscapeEdgeDf, landscape)
 }
-saveRDS(landscapeEdgeDf, 'data/network/landscapeEdgeDf.rds')
 
+fwrite(landscapeEdgeDf, 'data/network/landscapeEdgeDf.csv')
+fwrite(aggregateLandscapeEdgeDf, 'data/network/aggregateLandscapeEdgeDf.csv')
+
+rm(landscapeEdgeDf, aggregateLandscapeEdgeDf, nlcdYear, aggAreaBreak, landscape,
+   areaBreak)
 
 
 ## Interpolated Weather --------------------------------------------------------
@@ -1442,7 +1430,7 @@ weatherTypeColumns <- weatherIdwDf %>%
   colnames()
 
 weatherTypeCategory <- data.frame('Column' = weatherTypeColumns,
-                                 'Category' = 'WeatherType')
+                                  'Category' = 'WeatherType')
 
 weatherCategory <- bind_rows(weatherCategory, windCategory, weatherTypeCategory)
 
@@ -1529,4 +1517,3 @@ for(rowNumber in 1:nrow(weatherCategory)){
   weatherBreaks <- c(min(weatherValues[, ..weatherColumn] %>% pull()), weatherBreaks, max(weatherValues[, ..weatherColumn] %>% pull()))
   weatherKrigingDf[, weatherColumn]  <- cut(weatherValues %>% pull(), breaks=weatherBreaks, labels=weatherLabels, include.lowest = TRUE, right=FALSE)
 }
-

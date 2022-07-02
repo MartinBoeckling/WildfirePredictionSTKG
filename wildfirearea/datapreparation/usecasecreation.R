@@ -62,9 +62,8 @@ landscapeSettings <- list(c(landcoverList[1], '2010-01-01', '2012-12-01'),
                           c(landcoverList[2], '2013-01-01', '2015-12-01'),
                           c(landcoverList[3], '2016-01-01', '2018-12-01'),
                           c(landcoverList[4], '2019-01-01', '2021-12-01'))
-
 # network setting
-graphSimplified = FALSE
+graphSimplified = TRUE
 graphCluster = FALSE
 
 if(graphSimplified){
@@ -258,11 +257,54 @@ fwrite(x = usecase8Df, 'data/usecase/usecase8.csv')
 rm(usecase8Df)
 gc()
 # Network ----------------------------------------------------------------------
-openstreetmapGraphEdge <- readRDS('data/network/edgeDataFrame.rds')
+networkLandscapeSettings <- list(c('2010-01-01', '2012-12-01'),
+                                 c('2013-01-01', '2015-12-01'),
+                                 c('2016-01-01', '2018-12-01'),
+                                 c('2019-01-01', '2021-12-01'))
+## Use case 9 ------------------------------------------------------------------
+monthYearDf <- data.frame(DATE = seq(from=as.Date('2010-01-01'), to=as.Date('2021-12-01'), by='months'))
+monthYearDf <- monthYearDf %>%
+  mutate(YEAR = lubridate::year(DATE))
+# read in openstreetmap network
+osmNetworkDf <- fread('data/network/simplified/openstreetmapGraph.csv')
+# expand dataframe to monthly base
+osmNetworkDf <- osmNetworkDf %>%
+  left_join(monthYearDf, by='YEAR')
+# expand year based 
+# read in network from IDW interpolated data
+idwNetworkDf <- fread('data/network/idwNetwork.csv')
+# read in landscape data
+landscapeData <- fread('data/network/aggregateLandscapeEdgeDf.csv')
+landscapeYears <- unique(landscapeData$YEAR)
+landscapeList <- list()
+for (iteration in 1:length(landscapeYears)){
+  landscapeYear <- landscapeYears[iteration]
+  landscapeSettingRow <- networkLandscapeSettings[[iteration]]
+  print(landscapeYear)
+  # extract startdate
+  startDate <- as.Date(landscapeSettingRow[1])
+  # extract enddate
+  endDate <- as.Date(landscapeSettingRow[2])
+  # create landscape sequence
+  landscapeDateSeq <- seq(from=startDate, to=endDate, by='months')
+  
+  filteredLandscapeData <- landscapeData %>%
+    filter(YEAR == landscapeYear) %>%
+    distinct()
+  
+  # replicate landscape dataframe by date
+  landscapeDateSeqRepl <- sort(rep(landscapeDateSeq, nrow(filteredLandscapeData)))
+  
+  filteredLandscapeData <- filteredLandscapeData %>%
+    slice(rep(1:n(), length(landscapeDateSeq))) %>%
+    mutate(DATE = landscapeDateSeqRepl)
+  
+  landscapeList <- c(landscapeList, list(filteredLandscapeData))
+}
 
-openstreetmapGraphEdge <- openstreetmapGraphEdge %>%
-  dplyr::select(-YEAR)
-openstreetmapGraphEdge <- openstreetmapGraphEdge %>%
-  distinct()
+landscapeDf <- data.table::rbindlist(landscapeList)
+
+landscapeDf <- landscapeDf %>%
+  dplyr::select(from, description, to, ID, DATE)
 
 fwrite(openstreetmapGraphEdge, 'data/network/openstreetmapGraph.csv')
