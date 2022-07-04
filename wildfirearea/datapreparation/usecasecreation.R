@@ -269,10 +269,13 @@ monthYearDf <- monthYearDf %>%
 osmNetworkDf <- fread('data/network/simplified/openstreetmapGraph.csv')
 # expand dataframe to monthly base
 osmNetworkDf <- osmNetworkDf %>%
-  left_join(monthYearDf, by='YEAR')
+  left_join(monthYearDf, by='YEAR') %>%
+  dplyr::select(from, description, to, ID, DATE)
 # expand year based 
 # read in network from IDW interpolated data
 idwNetworkDf <- fread('data/network/idwNetwork.csv')
+idwNetworkDf <- idwNetworkDf %>%
+  dplyr::select(from, description, to, ID, DATE)
 # read in landscape data
 landscapeData <- fread('data/network/aggregateLandscapeEdgeDf.csv')
 landscapeYears <- unique(landscapeData$YEAR)
@@ -307,4 +310,34 @@ landscapeDf <- data.table::rbindlist(landscapeList)
 landscapeDf <- landscapeDf %>%
   dplyr::select(from, description, to, ID, DATE)
 
-fwrite(openstreetmapGraphEdge, 'data/network/openstreetmapGraph.csv')
+
+
+usecase9Df <- bind_rows(osmNetworkDf, idwNetworkDf, landscapeDf)
+
+uniqueDate <- unique(usecase9Df$DATE)
+dir.create(path = 'data/usecase/usecase9RDF2Vec', showWarnings = FALSE)
+pbmcmapply(uniqueDate, function(date){
+  filteredDf <- usecase9Df %>%
+    filter(DATE == date)
+  fwrite(filteredDf, paste0('data/usecase/usecase9RDF2Vec/',as.IDate(date), '.csv'))
+}, mc.cores = 6)
+
+for (date in uniqueDate){
+  print(date)
+  filteredDf <- usecase9Df %>%
+    filter(DATE == date)
+  fwrite(filteredDf, paste0('data/usecase/usecase9RDF2Vec/',as.IDate(date), '.csv'),)
+}
+
+
+fwrite(usecase9Df, 'data/usecase/usecase9RDF2Vec.csv')
+
+# wildfire
+wildfire <- readRDS('data/wildfire/wildfire.rds')
+
+usecase9Df <- usecase9Df %>%
+  left_join(wildfire, by=c('ID', 'DATE')) %>%
+  mutate(WILDFIRE = ifelse(is.na(WILDFIRE), 0, WILDFIRE))
+
+
+rm(usecase9Df, landscapeDf, landscapeList, landscapeYears, )
