@@ -8,7 +8,7 @@ representation using the RDF2Vec algorithm:
     - from: ID of grid cell or ID of geometric object as starting node
     - to: ID of grid cell or ID of geometric object as target node
     - description: Description of edge relation between starting and target node
-    - YEAR: Year of geometric object
+    - DATE: Date of geometric object (YEAR or monthly data)
     - ID: Associated ID of grid cell.
 
 The script contains three main methods. The first method is the dataPreparation method
@@ -18,9 +18,12 @@ The second script is the kgTraining method in which the training dataframe is gr
 to the year 
 
 Input:
-    - Path to edge dataframe in format dir/.../file
-    - Distance of node to other node
-    - maximum number of walks
+    - dataPath: Path to folder with edge dataframes in format dir/.../dir
+    - distance: Distance of node to other node
+    - maxWalks: maximum number of walks per defined entity
+    - train: Boolean value if RDF2Vec should be performed
+
+
 
 Output:
     - Transformer models in format of pickle file
@@ -40,11 +43,12 @@ from itertools import groupby
 import multiprocessing as mp
 import re
 from gensim.models.word2vec import Word2Vec as W2V
+from sklearn.cluster import KMeans
 
 
 class kgEmbedding:
 
-    def __init__(self, dataPath, distance, maxWalks, train):
+    def __init__(self, dataPath, distance, maxWalks, train, clustering, chunksize, savePath):
         # transform string to Path structure
         self.dataPath = Path(dataPath)
         # assign distance variable to class variable
@@ -53,39 +57,49 @@ class kgEmbedding:
         self.maxWalks = maxWalks
         # assign train to class variable
         self.train = train
+        # assign clustering to class variable
+        self.clustering = clustering
+        # assign chunksize to class variable
+        self.chunksize = chunksize
+        # assign savepath to class variable
+        self.savePath = savePath
         # create logging directory Path name based on file name
         loggingDirectory = Path(f'wildfirearea/modelling/KnowledgeGraph/{self.dataPath.stem}')
         # create logging directory
-        loggingDirectory.mkdir(exist_ok=True)
-        # create training and transform dataframe for two differrent phases
-        trainingDf, transformDf = self.dataPreparation()
+        loggingDirectory.mkdir(parents=True, exist_ok=True)
+        # extract all file paths from directory
+        directoryFiles = list(self.dataPath.glob('*'))
+        # if training variable is true, extract vectors in RDF2Vec
         if self.train:
-            # extract file dictionary containing transformer pathS
-            fileDict = self.kgTraining(trainingDf, loggingDirectory)
-        else:
-            loggingFiles = list(loggingDirectory.glob('transformer*.model'))
-            years = [re.findall(r'\d+', str(loggingFile))[0] for loggingFile in loggingFiles]
-            fileDict = dict(zip(years, loggingFiles))
+            for filePath in directoryFiles:
+                date = filePath.stem
+                graphData = self.dataPreparation(filePath)
+                self.kgTraining(graphData, loggingDirectory, date)
+        # extract stored models from loggingDirectory
+        loggingFiles = list(loggingDirectory.glob('transformer*.model'))
+        # extract dates from stored files name
+        loggingFilesDate = [re.findall(r'\d+', str(loggingFile))[0] for loggingFile in loggingFiles]
+        # construct file dictionary with loggingFilesDate as key and file name as value
+        fileDict = dict(zip(loggingFilesDate, loggingFiles))
+        # construct pairwise combination between files date and all entities ID
+        transformDict = {date: self.entities for date in loggingFilesDate}
         # extract result dictionary with ID and corresponding year
-        resultDict = self.kgTransformer(transformDf, fileDict)
-        print('Write result')
-        # store resultDict into pickle file
-        with open(f'{str(loggingDirectory)}/result.pkl', 'wb') as f:
-            pickle.dump(resultDict, f)
+        resultDict = self.kgTransformer(transformDict, fileDict)
+        # create vector representation as dataframe
+        self.vectorDf(resultDict)
+        if self.clustering:
+            self.vectorClustering(resultDict)
 
-
-    def dataPreparation(self):
-        print('Data Preparation')
-        # Read a CSV file containing the entities we want to classify.
-        graphData = pd.read_csv(self.dataPath)
+    def dataPreparation(self, filePath):
+        # check if variable dataPath is a directory or a file
+        # Read a CSV file containing the entities we want to classify
+        graphData = pd.read_csv(filePath)
         # change all columns to object type
         graphData = graphData.astype(str)
-        # group graphData to a year stored in list
-        trainingDf = graphData.groupby('YEAR')[['from', 'to', 'description', 'ID']].agg(list)
-        # group graphData to year and ID stored in list
-        transformDf = graphData.groupby(['YEAR'])[['ID']].agg(list)
-        # return trainingDf and transformDf dataframe
-        return trainingDf, transformDf
+        # order columns in determined order
+        graphData = graphData[['from', 'to', 'description', 'ID']]
+        # return prepared edge dataframe
+        return graphData
 
     def predicateGeneration(self, pathList):
         # assign class graph to graph variable
@@ -130,64 +144,81 @@ class kgEmbedding:
         # return walkSequence list
         return walkSequence
 
-    def kgTraining(self, trainingDf, loggingPath):
+    def kgTraining(self, graphData, loggingPath, date):
         print('KG Embedding Training')
-        #initalize Word2Vec model path dictionary
-        modelPathDict = {}
-        # build knowledge graph
-        for index, row in tqdm(trainingDf.iterrows(), total=trainingDf.shape[0], desc='Year iteration'):
-            # transform row of type list into dictionary to store into a dataframe with unique rows
-            rowValuesDf = pd.DataFrame(dict(row)).drop_duplicates(ignore_index=True)
-            # extract entities from column from
-            entities = pd.unique(rowValuesDf.pop('ID'))
-            # transform values of row values dataframe into list
-            rowValues = rowValuesDf.to_records(index=False)
-            # initialize Knowledge Graph
-            self.graph = Graph().TupleList(rowValues, directed=True, edge_attrs=['description'])
-            # initialize multiprocessing pool with cpu number
-            pool = mp.Pool(mp.cpu_count())
-            # extract walk predicates using the walkIteration method 
-            walkPredicateList = list(tqdm(pool.imap_unordered(self.walkIteration, entities, chunksize=8), desc='Walk Extraction', total=len(entities)))
-            # close multiprocessing pool
-            pool.close()
-            # build up corpus on extracted walks
-            corpus = [walk for entity_walks in walkPredicateList for walk in entity_walks]
-            # initialize Word2Vec model
-            model = W2V(min_count = 0, workers=1, seed=15)
-            # pass corpus to build vocabolary for Word2Vec model
-            model.build_vocab(corpus)
-            # train Word2Vec model on corpus
-            model.train(corpus, total_examples=model.corpus_count, epochs=10)
-            # save trained model
-            modelPath = f'{str(loggingPath)}/transformer{index}.model'
-            model.save(modelPath)
-            # delete variable with large memory consumption
-            del corpus, walkPredicateList, model
-            # append created path to dictionary
-            modelPathDict[index] = modelPath
-        return modelPathDict
+        self.entities = pd.unique(graphData.pop('ID'))
+        # transform values of row values dataframe into list
+        graphValues = graphData.to_records(index=False)
+        # initialize Knowledge Graph
+        self.graph = Graph().TupleList(graphValues, directed=True, edge_attrs=['description'])
+        # initialize multiprocessing pool with cpu number
+        pool = mp.Pool(mp.cpu_count())
+        # extract walk predicates using the walkIteration method 
+        walkPredicateList = list(tqdm(pool.imap_unordered(self.walkIteration, entities, chunksize=self.chunksize),
+                                    desc=f'Walk Extraction {date}', total=len(entities)))
+        # close multiprocessing pool
+        pool.close()
+        # build up corpus on extracted walks
+        corpus = [walk for entity_walks in walkPredicateList for walk in entity_walks]
+        # initialize Word2Vec model
+        model = W2V(min_count = 0, workers=1, seed=15)
+        # pass corpus to build vocabolary for Word2Vec model
+        model.build_vocab(corpus)
+        # train Word2Vec model on corpus
+        model.train(corpus, total_examples=model.corpus_count, epochs=10)
+        # save trained model
+        modelPath = f'{str(loggingPath)}/transformer{date}.model'
+        model.save(modelPath)
+        # delete variables with large memory consumption
+        del corpus, walkPredicateList, model
 
-    def kgTransformer(self, transformDf, fileDict):
+    def kgTransformer(self, transformDict, fileDict):
         print('Transformation started')
         # initialize result dictionary
         resultDict = {}
         # iterate over given transform dataframe
-        for index, row in tqdm(transformDf.iterrows(), total=transformDf.shape[0], desc='Year iteration'):
-            rowValuesDf = pd.DataFrame(dict(row)).drop_duplicates(ignore_index=True)
-            entityList = pd.unique(rowValuesDf['ID'])
-            modelFilePath = fileDict[index]
+        for transformKey in tqdm(transformDict, desc='Transformation iteration'):
+            entityList = transformDict[transformKey]
+            modelFilePath = fileDict[transformKey]
             model = W2V.load(str(modelFilePath))
             entityVector = [model.wv.get_vector(entity) for entity in entityList]
             dictEntity = dict(zip(entityList, entityVector))
-            resultDict[index] = dictEntity
+            resultDict[transformKey] = dictEntity
         return resultDict
+
+    def vectorDf(self, vectorDict):
+        kgVectorDfList = []
+        for dateKey in tqdm(vectorDict.keys()):
+            valueDict = vectorDict[dateKey]
+            columnNameList = [f'osmVector{number}' for number in range(1, len(valueDict)+1)]
+            kgVectorDf = pd.DataFrame.from_dict(valueDict, orient='index', columns=columnNameList)
+            kgVectorDf['ID'] = kgVectorDf.index
+            kgVectorDf['DATE'] = dateKey
+            kgVectorDfList.append(kgVectorDfList)
+        kgVectorCompleteDf = pd.concat(kgVectorDfList, ignore_index=True)
+        kgVectorCompleteDf.to_csv(f'{self.savePath}/vectorDf.csv', index=False)
+    
+    def vectorClustering(self, vectorDict):
+        kgDf = pd.DataFrame()
+        for date in tqdm(vectorDict):
+            valuesList = list(vectorDict[date].values())
+            valuesArray = np.stack(valuesList)
+            clusterValues = KMeans(n_clusters=10, random_state=15).fit_predict(valuesArray)
+            resultKeys = list(vectorDict[date].keys())
+            resultDf = pd.DataFrame(data={'ID': resultKeys, 'osmCluster': clusterValues.tolist()})
+            resultDf['DATE'] = date
+        kgDf = pd.concat([kgDf, resultDf], ignore_index=True)
+        kgDf.to_csv(f'{self.savePath}/osmCluster.csv', index=False)
 
 if __name__ == '__main__':
     # initialize the command line argparser
     parser = argparse.ArgumentParser(description='RDF2Vec argument parameters')
     # add train argument parser
     parser.add_argument('-t', '--train', default=False, action='store_true',
-    help="use parameter if training should be performed")
+    help="use parameter if Word2Vec training should be performed")
+    # add clustering argument
+    parser.add_argument('-c', '--clustering', default=False, action='store_true',
+    help="use parameter if clustering should be performed on extracted vectors")
     # add path argument parser
     parser.add_argument('-p', '--path', type=str, required=True,
     help='string value to data path')
@@ -197,6 +228,12 @@ if __name__ == '__main__':
     # add walk number argument parser
     parser.add_argument('-w', '--walknumber', type=int, required=True,
     help='maximum walk number from selected node')
+    # add chunksize argument
+    parser.add_argument('-chunk', '--chunksize', type=int, required=True,
+    help="use parameter to determine chunksize for parallel processing")
+    parser.add_argument('-save', '--savepath', type=str, required=True,
+    help="use parameter to save path for files")
     # store parser arguments in args variable
     args = parser.parse_args()
-    kgEmbedding(args.path, args.distance, args.walknumber, args.train)
+    kgEmbedding(args.path, args.distance, args.walknumber, args.train,
+                args.clustering, args.chunksize, args.savepath)

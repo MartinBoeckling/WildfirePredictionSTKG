@@ -66,7 +66,6 @@ class modelPrediction:
         print('Data Preprocessing')
         # read file into dataframe
         data = pd.read_csv(self.dataPath)
-        print(data.columns)
         # transform DATE column into datetime
         data['DATE'] = pd.to_datetime(data['DATE'])
         # check if column osmCluster is present in dataframe
@@ -87,20 +86,26 @@ class modelPrediction:
         # resample data with specified strategy
         trainDataX, trainDataY = roseSampling.fit_resample(trainDataX, trainDataY)
         # extract Wildfire column as testdata target
-        print('Data sampled')
         testDataY = testData.pop('WILDFIRE')
         # Drop Date and ID column
         testDataX = testData.drop(columns=['DATE', 'ID'], axis=1)
-        # create preprocessing pipeline for categorical data
+        # create preprocessing pipeline for numerical and categorical data
+        # create numerical transformer pipeline
+        numericTransformer = Pipeline(steps=[
+            ('imputer', SimpleImputer(strategy='median'))
+        ])
         # create categorical transformer pipeline
         categoricTransformer = Pipeline(steps=[
             ('encoder', OneHotEncoder())
         ])
+        # select columns with numerical dtypes
+        numericFeatures = trainDataX.select_dtypes(include=['int64', 'float64']).columns
         # select columns with categorical dtype
         categoricFeatures = trainDataX.select_dtypes(include=['object']).columns
         # construct column transformer object to apply pipelines to each column
         preprocessor = ColumnTransformer(
             transformers=[
+                ('num', numericTransformer, numericFeatures),
                 ('cat', categoricTransformer, categoricFeatures)],
             n_jobs=-1, verbose=True)
         # apply column transformer to train and test data
