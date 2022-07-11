@@ -4,7 +4,9 @@ library(dplyr)
 library(sf)
 library(tidyr)
 library(pbmcapply)
+library(purrr)
 library(lubridate)
+
 
 # script functions -------------------------------------------------------------
 landscapeGeneration <- function(fileParameter, aggregateArea){
@@ -63,7 +65,7 @@ landscapeSettings <- list(c(landcoverList[1], '2010-01-01', '2012-12-01'),
                           c(landcoverList[3], '2016-01-01', '2018-12-01'),
                           c(landcoverList[4], '2019-01-01', '2021-12-01'))
 # network setting
-graphSimplified = TRUE
+graphSimplified = FALSE
 graphCluster = FALSE
 
 if(graphSimplified){
@@ -78,6 +80,12 @@ if(graphSimplified){
   } else{
     osmNetworkPath <- 'data/network/double/vectorDf.csv'
   }
+}
+
+if(graphSimplified){
+  osmNetworkPathGraph <- 'data/network/simplified/openstreetmapGraph.csv'
+} else{
+  osmNetworkPathGraph <- 'data/network/double/openstreetmapGraph.csv'
 }
 
 # Base Case --------------------------------------------------------------------
@@ -266,16 +274,21 @@ monthYearDf <- data.frame(DATE = seq(from=as.Date('2010-01-01'), to=as.Date('202
 monthYearDf <- monthYearDf %>%
   mutate(YEAR = lubridate::year(DATE))
 # read in openstreetmap network
-osmNetworkDf <- fread('data/network/simplified/openstreetmapGraph.csv')
-# expand dataframe to monthly base
+osmNetworkDf <- fread(osmNetworkPathGraph)
+# expand dataframe to monthly base and select only distinct rows
 osmNetworkDf <- osmNetworkDf %>%
   left_join(monthYearDf, by='YEAR') %>%
-  dplyr::select(from, description, to, ID, DATE)
+  dplyr::select(from, description, to, ID, DATE) %>%
+  distinct()
+
 # expand year based 
 # read in network from IDW interpolated data
 idwNetworkDf <- fread('data/network/idwNetwork.csv')
+# reorder columns and remove duplicate rows
 idwNetworkDf <- idwNetworkDf %>%
-  dplyr::select(from, description, to, ID, DATE)
+  dplyr::select(from, description, to, ID, DATE) %>%
+  distinct()
+  
 # read in landscape data
 landscapeData <- fread('data/network/aggregateLandscapeEdgeDf.csv')
 landscapeYears <- unique(landscapeData$YEAR)
@@ -308,11 +321,14 @@ for (iteration in 1:length(landscapeYears)){
 landscapeDf <- data.table::rbindlist(landscapeList)
 
 landscapeDf <- landscapeDf %>%
-  dplyr::select(from, description, to, ID, DATE)
-
-
+  dplyr::select(from, description, to, ID, DATE) %>%
+  distinct()
 
 usecase9Df <- bind_rows(osmNetworkDf, idwNetworkDf, landscapeDf)
+
+
+
+### RDF2Vec ---------------------------------------------------------------------
 
 uniqueDate <- unique(usecase9Df$DATE)
 dir.create(path = 'data/usecase/usecase9RDF2Vec', showWarnings = FALSE)
@@ -329,15 +345,24 @@ for (date in uniqueDate){
   fwrite(filteredDf, paste0('data/usecase/usecase9RDF2Vec/',as.IDate(date), '.csv'),)
 }
 
-
-fwrite(usecase9Df, 'data/usecase/usecase9RDF2Vec.csv')
+# read in vector representation from RDF2Vec approach
+usecase9Df <- fread('data/network/usecase9/vectorDf.csv')
+usecase9Df$DATE <- as.IDate(usecase9Df$DATE)
 
 # wildfire
 wildfire <- readRDS('data/wildfire/wildfire.rds')
+wildfire$DATE <- as.IDate(wildfire$DATE)
 
 usecase9Df <- usecase9Df %>%
   left_join(wildfire, by=c('ID', 'DATE')) %>%
-  mutate(WILDFIRE = ifelse(is.na(WILDFIRE), 0, WILDFIRE))
+  mutate(WILDFIRE = ifelse(is.na(WILDFIRE), 0, WILDFIRE)) %>%
+  dplyr::select(-geometry)
+
+fwrite(usecase9Df, 'data/usecase/usecase9Vector.csv')
+
+### STGNN ----------------------------------------------------------------------
 
 
-rm(usecase9Df, landscapeDf, landscapeList, landscapeYears, )
+rm(usecase9Df, landscapeDf, landscapeList, landscapeYears)
+
+## Use Case 10 -----------------------------------------------------------------
