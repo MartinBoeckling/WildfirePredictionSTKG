@@ -613,14 +613,6 @@ californiaCoastLine <- st_transform(californiaCoastLine, prjLonLat)
 # Elevation --------------------------------------------------------------------
 ## read data -------------------------------------------------------------------
 elevationRaster <- raster::raster('data/elevation/californiaElevation.tif')
-
-"## Terrain ---------------------------------------------------------------------
-# calculate terrain statistics based from the given elevation raster
-terrainList <- raster::terrain(elevationRaster, opt=c('slope', 'aspect', 'flowdir'),
-                               unit = 'degrees', neighbors=8, progress='text',
-                               filename='data/elevation/terrain.grd')
-terrainList <- raster::stack('data/elevation/terrain.tif', bands=c(1, 2, 6))
-names(terrainList) <- c('SLOPE', 'ASPECT', 'FLOWDIR')"
 ## Elevation grid -----------------------------------
 # extract elevation values by aggregating average weighting based on area present
 # in polygon

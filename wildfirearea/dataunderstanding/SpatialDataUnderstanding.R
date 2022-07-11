@@ -612,3 +612,18 @@ heatmapDatePlot(weather, 'WV07', minPRCP, maxPRCP, 'sum(WV07)', 'Month', 'Year')
 # distribution of data over month and year
 heatmapDatePlot(weather, 'WV20', minPRCP, maxPRCP, 'sum(WV20)', 'Month', 'Year')
 
+# Wildfire ---------------------------------------------------------------------
+wildfireDirs <- list.dirs('data/wildfire', recursive = FALSE)
+wildfireDf <- data.frame()
+for (wildfireDir in wildfireDirs){
+  year <- strsplit(wildfireDir, '/')[[1]][3]
+  print(year)
+  wildfireShpFiles <- list.files(wildfireDir, pattern = '.shp', full.names = TRUE)
+  wildfireDfList <- lapply(wildfireShpFiles, read_sf)
+  wildfireDfSingle <- sf::st_as_sf(data.table::rbindlist(wildfireDfList))
+  wildfireDfSingle <- wildfireDfSingle %>%
+    mutate(DATE = as.Date(paste0(year, '-01-01')) + BurnDate)
+  wildfireDf <- rbind(wildfireDf, wildfireDfSingle)
+}
+
+sum(st_is_valid(wildfireDf))

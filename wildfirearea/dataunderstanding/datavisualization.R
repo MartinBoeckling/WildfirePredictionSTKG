@@ -2,11 +2,48 @@
 library(dplyr)
 library(ggplot2)
 library(sf)
+library(tidyr)
 library(visNetwork)
 library(stars)
+
+# script functions -------------------------------------------------------------
+landscapeGeneration <- function(fileParameter, aggregateArea){
+  # split vector into relevant areas
+  # extract landscape path
+  landscapePath <- fileParameter[1]
+  # extract startdate
+  startDate <- as.Date(fileParameter[2])
+  # extract enddate
+  endDate <- as.Date(fileParameter[3])
+  # read in landscape data
+  landscapeData <- readRDS(landscapePath)
+  # extract date of landscape file based on file name
+  landscapeDate <- as.numeric(gsub(".*?([0-9]+).*", "\\1", landscapePath))
+  # create landscape sequence
+  landscapeDateSeq <- seq(from=startDate, to=endDate, by='months')
+  # replicate landscape dataframe by date
+  landscapeDateSeqRepl <- rep(landscapeDateSeq, nrow(landscapeData))
+  # aggregate data
+  if (aggregateArea) {
+    landscapeData <- landscapeData %>%
+      pivot_longer(!ID, names_to='LANDCOVER', values_to = 'area') %>%
+      group_by(ID) %>%
+      filter(area == max(area)) %>%
+      slice(rep(1:n(), length(landscapeDateSeq))) %>%
+      dplyr::select(-area)
+  } else{
+    landscapeData <- landscapeData %>%
+      slice(rep(1:n(), length(landscapeDateSeq)))
+  }
+  landscapeData$DATE <- landscapeDateSeqRepl
+  return(landscapeData)
+}
+
 # Script parameters ------------------------------------------------------------
 californiaBoundary <- sf::st_read('data/californiaBoundary/CA_State_TIGER2016.shp')
 colorPalette <- grDevices::grey.colors(n=25)
+# list all landcover files in a list
+landcoverList <- list.files('data/landCover/polygon', full.names = TRUE)
 # Wildfire visualization -------------------------------------------------------
 wildfire <- readRDS('data/wildfire/wildfire.rds')
 ggplot(data=wildfire) +
@@ -90,4 +127,40 @@ hexGrid <- sf::st_as_sf(hexGrid)
 ggplot() +
   geom_sf(data=californiaBoundary, fill='white') +
   geom_sf(data=hexGrid, fill=NA, color='darkgrey', lwd=1) +
+  theme_minimal()
+
+
+# Elevation visualization ------------------------------------------------------
+ggplot() +
+  geom_sf(data=hexGridSf, aes(fill=ELEVATION, colour=ELEVATION)) +
+  scale_fill_continuous(name='Elevation in meters', low=colorPalette[1], high=colorPalette[25]) +
+  scale_colour_continuous(name='Elevation in meters', low=colorPalette[1], high=colorPalette[25]) +
+  theme_minimal()
+
+# Wildfire ---------------------------------------------------------------------
+wildfireData <- readRDS('data/wildfire/wildfire.rds')
+
+ggplot() +
+  geom_sf(data=californiaBoundary, fill='white') +
+  geom_sf(data  = wildfireData, aes(fill=DATE, colour=DATE), size=0) +
+  scale_fill_date(name='Date', low=colorPalette[1], high=colorPalette[25]) +
+  scale_colour_date(name='Date', low=colorPalette[1], high=colorPalette[25]) +
+  theme_minimal()
+
+# Landscape --------------------------------------------------------------------
+landscapeData <- readRDS("data/landCover/polygon/PolygonLayernlcd2011.rds")
+landscapeData <- landscapeData %>%
+  pivot_longer(!ID, names_to='LANDCOVER', values_to = 'area') %>%
+  group_by(ID) %>%
+  filter(area == max(area)) %>%
+  dplyr::select(-area)
+
+landscapeData <- landscapeData %>%
+  left_join(hexGridSf, by='ID')
+landscapeData <- st_as_sf(landscapeData)
+
+ggplot() +
+  geom_sf(data  = landscapeData, aes(fill=LANDCOVER, colour=LANDCOVER), size=0) +
+  scale_fill_discrete(name='Landcover') +
+  scale_colour_discrete(name='Landcover') +
   theme_minimal()
