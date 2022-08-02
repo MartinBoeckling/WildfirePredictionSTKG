@@ -194,4 +194,4 @@ wildfirearea/.RData
 # ignore test files
 **/test.py
 
-**/transformer**.model*
+**/entityVector**.pkl*

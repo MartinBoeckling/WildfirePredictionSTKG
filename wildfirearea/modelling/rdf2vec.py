@@ -77,7 +77,6 @@ class kgEmbedding:
         loggingDirectory.mkdir(parents=True, exist_ok=True)
         # extract all file paths from directory
         directoryFiles = list(sorted(self.dataPath.glob('*')))
-        directoryFiles = directoryFiles[68:]
         # assign empty method to get accessed
         self.model = W2V(min_count = 0, workers=1, seed=15)
         # if training variable is true, extract vectors in RDF2Vec
@@ -87,9 +86,9 @@ class kgEmbedding:
                 graphData = self.dataPreparation(filePath)
                 self.kgTraining(graphData, loggingDirectory, date)
         # extract stored models from loggingDirectory
-        loggingFiles = list(sorted(loggingDirectory.glob('*')))
+        loggingFiles = list(sorted(loggingDirectory.glob('*.pkl')))
         # extract dates from stored files name
-        loggingFilesDate = [re.findall(r'\d+-\d+-\d+', str(loggingFile.stem))[0] for loggingFile in loggingFiles]
+        loggingFilesDate = [re.findall(r'\d+-\d+-\d+', loggingFile.stem)[0] for loggingFile in loggingFiles]
         # construct file dictionary with loggingFilesDate as key and file name as value
         fileDict = dict(zip(loggingFilesDate, loggingFiles))
         # extract result dictionary with ID and corresponding year
