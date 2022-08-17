@@ -66,16 +66,18 @@ class kgEmbedding:
         # assign chunksize to class variable
         self.chunksize = chunksize
         # assign savepath to class variable
-        self.savePath = savePath
+        self.savePath = Path(savePath)
         # assign retrain to class variable
         self.retrain = retrain
         # assign alignment to class variable
         self.alignment = alignmentProjection
         # create logging directory Path name based on file name
-        loggingDirectory = Path(f'wildfirearea/modelling/KnowledgeGraph/{self.dataPath.stem}')
+        loggingDirectory = self.savePath
         # create logging directory
         loggingDirectory.mkdir(parents=True, exist_ok=True)
         # extract all file paths from directory
+        # create save directory
+        self.savePath.mkdir(parents=True, exist_ok=True)
         directoryFiles = list(sorted(self.dataPath.glob('*')))
         # assign empty method to get accessed
         self.model = W2V(min_count = 0, workers=1, seed=15)
@@ -88,7 +90,7 @@ class kgEmbedding:
         # extract stored models from loggingDirectory
         loggingFiles = list(sorted(loggingDirectory.glob('*.pkl')))
         # extract dates from stored files name
-        loggingFilesDate = [re.findall(r'\d+-\d+-\d+', loggingFile.stem)[0] for loggingFile in loggingFiles]
+        loggingFilesDate = [re.findall(r'\d+-\d+-\d+|\d+', loggingFile.stem)[0] for loggingFile in loggingFiles]
         # construct file dictionary with loggingFilesDate as key and file name as value
         fileDict = dict(zip(loggingFilesDate, loggingFiles))
         # extract result dictionary with ID and corresponding year
@@ -178,7 +180,7 @@ class kgEmbedding:
             # retrieve class model states
             model = self.model
             # check if already word vector exists
-            if len(self.model.wv) == 0 or date == '2020-01-01':
+            if len(self.model.wv) == 0:
                 # pass corpus to build vocabolary for Word2Vec model
                 model.build_vocab(corpus)
             else:
@@ -197,7 +199,7 @@ class kgEmbedding:
             # train Word2Vec model on corpus
             model.train(corpus, total_examples=model.corpus_count, epochs=10)
             # check if previous model has been trained
-            if len(self.model.wv) == 0 or date == '2020-01-01':
+            if len(self.model.wv) == 0:
                 # no action as then nothing needs to be done
                 pass
             else:
@@ -247,15 +249,16 @@ class kgEmbedding:
         kgVectorCompleteDf.to_csv(f'{self.savePath}/vectorDf.csv', index=False)
     
     def vectorClustering(self, vectorDict):
-        kgDf = pd.DataFrame()
-        for date in tqdm(vectorDict):
+        kgClusterDfList = []
+        for date in tqdm(vectorDict.keys(), desc='Clustering generation'):
             valuesList = list(vectorDict[date].values())
             valuesArray = np.stack(valuesList)
             clusterValues = KMeans(n_clusters=10, random_state=15).fit_predict(valuesArray)
             resultKeys = list(vectorDict[date].keys())
             resultDf = pd.DataFrame(data={'ID': resultKeys, 'osmCluster': clusterValues.tolist()})
             resultDf['DATE'] = date
-        kgDf = pd.concat([kgDf, resultDf], ignore_index=True)
+            kgClusterDfList.append(resultDf)
+        kgDf = pd.concat(kgClusterDfList, ignore_index=True)
         kgDf.to_csv(f'{self.savePath}/osmCluster.csv', index=False)
 
 if __name__ == '__main__':

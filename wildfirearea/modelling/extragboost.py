@@ -42,7 +42,7 @@ class modelPrediction:
         self.dataPath = Path(dataPath)
         # create directory for use case
         self.loggingPath = Path('wildfirearea/modelling').joinpath(self.dataPath.stem)
-        self.loggingPath.mkdir(exist_ok=True)
+        self.loggingPath.mkdir(exist_ok=True, parents=True)
         # check if input is eligeble for data processing
         # check if dataPath input is a file
         assert self.dataPath.is_file(), f'{self.dataPath} does not link to a file'
