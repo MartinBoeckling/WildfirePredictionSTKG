@@ -34,7 +34,7 @@ from skopt import BayesSearchCV
 from skopt.space.space import Real, Integer
 from imblearn.over_sampling import RandomOverSampler
 import xgboost as xgb
-
+import shap
 
 class modelPrediction:
     def __init__(self, validation, dataPath, testDate):
@@ -193,6 +193,7 @@ class modelPrediction:
         xgbCl.fit(dataTrainX, dataTrainY)
         # store model
         xgbCl.save_model(f'{str(self.loggingPath)}/trainedModel.json')
+        self.model = xgbCl
         # perform prediction on test dataset with trained model
         predClass = xgbCl.predict(dataTestX)
         # calculate probability for AUC calculation
@@ -225,6 +226,12 @@ class modelPrediction:
         plt.legend(loc="lower right")
         # save roc-curve plot
         plt.savefig(f'{str(self.loggingPath)}/rocCurve.png')
+
+    def modelExplanation(self, testData, testDataColumns):
+        explainer = shap.TreeExplainer(self.model)
+        shapValues = explainer.shap_values(testData)
+        shap.summary_plot(shapValues, testData, plot_type="violin", max_display=15, show=False)
+        plt.savefig(f"summaryPlotModelPerformance{self.dataPath.stem}.png", dpi=250, bbox_inches='tight')
 
 
 if __name__ == '__main__':
