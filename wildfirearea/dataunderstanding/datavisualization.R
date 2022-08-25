@@ -1,8 +1,11 @@
 # import packages --------------------------------------------------------------
 library(dplyr)
+library(data.table)
 library(ggplot2)
+library(RSQLite)
 library(sf)
 library(tidyr)
+library(dbplyr)
 library(visNetwork)
 library(stars)
 
@@ -146,6 +149,11 @@ ggplot() +
   scale_fill_date(name='Date', low=colorPalette[1], high=colorPalette[25]) +
   scale_colour_date(name='Date', low=colorPalette[1], high=colorPalette[25]) +
   theme_minimal()
+
+# Wildfire reasoning -----------------------------------------------------------
+connection <- dbConnect(drv=RSQLite::SQLite(), 'C:/Users/D070547/Downloads/RDS-2013-0009.5_SQLITE/Data/FPA_FOD_20210617.sqlite')
+## list all tables
+fires <- tbl(connection, "Fires") %>% collect()
 
 # Landscape --------------------------------------------------------------------
 landscapeData <- readRDS("data/landCover/polygon/PolygonLayernlcd2011.rds")

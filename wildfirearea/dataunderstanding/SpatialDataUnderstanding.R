@@ -95,18 +95,12 @@ heatmapDatePlot <- function(df, column, minValue, maxValue, funString, xaxisDesc
 
 # Land Cover -------------------------------------------------------------------
 landcoverFileList <- list.files(path = 'data/landCover', pattern = '.tif$', full.names = TRUE)
-landCover <- stars::read_stars(landcoverFileList, along = 'band')
-downsampledLandCover <- st_downsample(landCover, 10)
-landCoverDf <- as.data.frame(downsampledLandCover)
-landCoverDf$band <- recode(landCoverDf$band, '1' = '2001', '2' = '2004', '3' = '2006', '4' = '2008',
-                    '5' = '2011', '6' = '2013', '7' = '2016', '8' = '2019')
-
-NAWeatherDf <- data.frame(NAFraction =
-                     sapply(weather, function(column) sum(is.na(column))/nrow(df))
-)
+landCover <- raster::stack(landcoverFileList)
+landCoverDf <- as.data.frame(landCover)
+landCoverDf$band <- recode(landCoverDf$band, '1' = '2011', '2' = '2013', '3' = '2016', '4' = '2019')
 
 # plot missing values over each column
-NAColumnPlot(landCoverDf)
+naColumnPlot(landCoverDf)
 
 # plot barplot for landcover category count
 ggplot(landCoverDf, aes(x=attr)) +
@@ -114,7 +108,8 @@ ggplot(landCoverDf, aes(x=attr)) +
   facet_wrap(~band, ncol=2) +
   xlab('Landcover type') +
   ylab('Count') +
-  coord_flip()
+  coord_flip() +
+  theme_minimal()
 # Powerlines -------------------------------------------------------------------
 # read in powerline data
 powerline <- sf::read_sf('data/openDataCalifornia/California_Electric_Transmission_Lines/Transmission_Line.shp')
@@ -626,4 +621,4 @@ for (wildfireDir in wildfireDirs){
   wildfireDf <- rbind(wildfireDf, wildfireDfSingle)
 }
 
-sum(st_is_valid(wildfireDf))
+sum(st_is_valid(wildfireDf))/nrow(wildfireDf)

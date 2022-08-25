@@ -8,6 +8,11 @@
       }
     ]
   },
+  "Python": {
+    "Version": "3.9.10",
+    "Type": "virtualenv",
+    "Name": "C:/Users/D070547/wildfire"
+  },
   "Packages": {
     "BH": {
       "Package": "BH",

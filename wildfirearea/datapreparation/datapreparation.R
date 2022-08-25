@@ -564,7 +564,7 @@ If the variable landscapeClassMain is set to true, the main class is used. If
 the variable is set to false, the fine granulated sub class is used from the
 NLCD dataset
 '
-landscapeClassMain <- TRUE
+landscapeClassMain <- FALSE
 
 ## Network ---------------------------------------------------------------------
 '
@@ -714,7 +714,7 @@ for (column in weatherVariables) {
 # create attributes for weather related variables
 validWeatherAttributes <- paste(weatherVariables[validWeatherColumns][-c(1:6)], 'ATTRIBUTES', sep='_')
 # create vector of valid weather columns
-validWeatherColumns <- c(weatherVariables[validWeatherColumns],validWeatherAttributes )
+validWeatherColumns <- c(weatherVariables[validWeatherColumns])
 # select weather column of variables covering all dates
 weather <- weather %>%
   dplyr::select(all_of(validWeatherColumns))
