@@ -21,7 +21,12 @@ For the igraph package you must assure that the required dependencies on a C env
 
 
 ## Data
-The data can be found under the following OneDrive [Folder](https://1drv.ms/u/s!AijsqF7qjxxBhcdw369GMZSGwCQB0Q?e=bnFiac). The structure is the same and the individual folders should be placed into the Data folder. The provided coding uses relative paths, therefore make sure to make the necessary changes to your selected editor.
+The data can be found under the following OneDrive [Folder](https://1drv.ms/u/s!AijsqF7qjxxBiNhW7pu3QFB4LJxgPg?e=W37f3T). The structure is the same and the individual folders should be placed into the Data folder. The provided coding uses relative paths, therefore make sure to make the necessary changes to your selected editor.
+
+## Data Mining Pipeline
+The Data Mining Pipeline shows the overall procedure and steps taken for this master thesis. An outline can be found in image *discusion*
+
+![Data Mining Pipeline](img/)
 
 ## Code Structure
 In the following list the structure of the repository with the associated files are highlighted. 
@@ -33,5 +38,6 @@ In the following list the structure of the repository with the associated files 
   - [Data Preparation](wildfirearea/datapreparation/datapreparation.R) (Data Preparation script which involves weather interpolation)
   - [RDF2Vec script](wildfirearea/modelling/rdf2vec.py) (Script which transforms Knowledge Graph into vector representation)
   - [Use Case data preparation](wildfirearea/datapreparation/usecasecreation.R) (script which creates the use case datasets on which master thesis is conducted)
-- Modelling
+- Modeling
   - [XgBoost classification](wildfirearea/modelling/extragboost.py) (Script using the xgboost python package for wildfire classification)
+

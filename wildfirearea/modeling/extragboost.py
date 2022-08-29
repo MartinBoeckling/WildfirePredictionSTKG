@@ -60,6 +60,7 @@ class modelPrediction:
             parameterSettings = {}
         # perform training based on train and test dataset and parametersettings
         self.modelTraining(trainData, testData, parameterSettings)
+        self.modelExplanation()
 
     
     def dataPreprocess(self):
@@ -89,6 +90,7 @@ class modelPrediction:
         testDataY = testData.pop('WILDFIRE')
         # Drop Date and ID column
         testDataX = testData.drop(columns=['DATE', 'ID'], axis=1)
+        self.testData = testDataX
         # create preprocessing pipeline for numerical and categorical data
         # create numerical transformer pipeline
         numericTransformer = Pipeline(steps=[
@@ -226,11 +228,12 @@ class modelPrediction:
         plt.legend(loc="lower right")
         # save roc-curve plot
         plt.savefig(f'{str(self.loggingPath)}/rocCurve.png')
+        plt.close()
 
-    def modelExplanation(self, testData, testDataColumns):
+    def modelExplanation(self):
         explainer = shap.TreeExplainer(self.model)
-        shapValues = explainer.shap_values(testData)
-        shap.summary_plot(shapValues, testData, plot_type="violin", max_display=15, show=False)
+        shapValues = explainer.shap_values(self.testData)
+        shap.summary_plot(shapValues, self.testData, plot_type="violin", max_display=15, show=False)
         plt.savefig(f"summaryPlotModelPerformance{self.dataPath.stem}.png", dpi=250, bbox_inches='tight')
 
 
