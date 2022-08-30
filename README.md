@@ -16,7 +16,7 @@ For using the geospatial packages like sf within R GDAL, GEOS and Proj.4 needs t
 The python coding is based on python version 3.9.12.
 The dependencies can be found in the [requirements.txt](wildfirearea/requirements.txt) file. To install the packages used in this project please run `pip install -r requirements.txt` in your created virtual environement. 
 
->Example virtuelenv creation: `virtualenv wildfire -p` *path to python 3.9.12 environment*
+>Example virtuelenv creation: `virtualenv wildfire -p path to python 3.9.12 environment` 
 
 For the igraph package you must assure that the required dependencies on a C environment are met. Therefore, please make sure to follow the [installation guidelines provided by igraph](https://igraph.org/python/#pyinstall).
 
