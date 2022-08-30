@@ -3,7 +3,7 @@ library(sf)
 library(raster)
 library(stars)
 # read in california boundary from shapefile
-californiaBoundary <- st_read('~/Github/wildfirearea/data/californiaBoundary/CA_State_TIGER2016.shp')
+californiaBoundary <- st_read('data/californiaBoundary/CA_State_TIGER2016.shp')
 californiaSpol <- as_Spatial(californiaBoundary)
 californiaSpol <- spTransform(californiaSpol, CRS(prjLonLat))
 
