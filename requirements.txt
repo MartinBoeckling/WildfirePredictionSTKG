@@ -24,7 +24,7 @@ ipykernel==6.13.0
 ipython==8.3.0
 isodate==0.6.1
 jedi==0.18.1
-joblib==1.1.0
+joblib==1.2.0
 kiwisolver==1.4.2
 llvmlite==0.39.0
 matplotlib==3.5.2
