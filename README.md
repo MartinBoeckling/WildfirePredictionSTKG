@@ -12,6 +12,8 @@ The dependencies of the project can be found in the [renv.lock](wildfirearea/ren
 
 For using the geospatial packages like sf within R GDAL, GEOS and Proj.4 needs to be installed. Instructions for downloading can be found under the following [link](https://r-spatial.github.io/sf/#installing)
 
+To use all R related scripts the [Project File](wildfirearea.Rproj) can be opened, so that the relative paths are also accessible for R.
+
 ### Python
 The python coding is based on python version 3.9.12.
 The dependencies can be found in the [requirements.txt](wildfirearea/requirements.txt) file. To install the packages used in this project please run `pip install -r requirements.txt` in your created virtual environement. 
@@ -61,7 +63,7 @@ In the following each step within the Data Mining Pipeline is explained and asso
   - Can be found in the part of the [Data Preparation script](https://github.com/MartinBoeckling/wildfirearea/blob/03a2fa85b8bef239a0cae6f707e66ce4d3a6f559/wildfirearea/datapreparation/datapreparation.R#L1102-L1511)
 - RDF2Vec
   - The RDF2Vec method is used to transform the Knowledge Graph into a vector representation using graph walks
-  - The own implementation based on igraph is present in the following script
+  - The own implementation based on igraph is present in the [following script](wildfirearea/modeling/rdf2vec.py)
 - XGBoost
   - The classification algorithm used for the wildfire detection
   - The script for XGBoost is present in the [following script](wildfirearea\modeling\extragboost.py)
