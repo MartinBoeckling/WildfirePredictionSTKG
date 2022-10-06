@@ -16,6 +16,7 @@ library(osmdata)
 library(pbmcapply)
 library(raster)
 library(rgeoda)
+library(RSQLite)
 library(sf)
 library(sp)
 library(tibble)
@@ -1088,16 +1089,50 @@ for (wildfireDir in wildfireDirs){
     st_make_valid()
   wildfireDf <- rbind(wildfireDf, wildfireDfSingle)
 }
+# transform CRS projection to LonLat standard
 wildfireDf <- st_transform(wildfireDf, crs=prjLonLat)
-
+# join wildfire areas to hexagonal grid
 wildfireDf <- wildfireDf %>%
   st_join(hexGridSf) %>%
   dplyr::select(DATE, ID, geometry) %>%
   na.omit(ID) %>%
+  st_make_valid() %>%
   mutate(WILDFIRE = 1,
-         DATE = floor_date(DATE, unit='month'))
+         DATE = floor_date(DATE, unit='month'),
+         AREA = st_area())
+
+# merge wildfire reason to wildfire area data
+# build SQLite connection
+wildfireReasonConnection <- dbConnect(drv=RSQLite::SQLite(), 'data/wildfire/FPA_FOD_20210617.sqlite')
+# collect data from SQLIte connection
+wildfireReason <-tbl(wildfireReasonConnection, "Fires") %>% collect()
+# close SQLite connection
+wildfireReasonConnection %>% dbDisconnect()
+# transform to sf dataframe
+wildfireReason <- st_as_sf(wildfireReason, coords = c('LONGITUDE', 'LATITUDE'), crs=prjLonLat)
+# select columns to wildfire reason and filter for year of interest
+wildfireReason <- wildfireReason %>%
+  mutate(DISCOVERY_DATE = as.Date(DISCOVERY_DATE, format='%m/%d/%Y'),
+         CONT_DATE = as.Date(CONT_DATE, format='%m/%d/%Y')) %>%
+  filter(DISCOVERY_DATE >= as.Date('2010-01-01') & NWCG_GENERAL_CAUSE != 'Missing data/not specified/undetermined') %>%
+  mutate(DISCOVERY_DATE = floor_date(DISCOVERY_DATE, unit='month'),
+         CONT_DATE = floor_date(CONT_DATE, unit='month')) %>%
+  mutate(CONT_DATE = coalesce(CONT_DATE, DISCOVERY_DATE)) %>%
+  mutate(CONT_DATE = if_else(CONT_DATE > as.Date('2018-12-01'), DISCOVERY_DATE, CONT_DATE)) %>%
+  mutate(DURATION = as.numeric(round(difftime(CONT_DATE, DISCOVERY_DATE, units='days')/(365.25/12)))+1) %>%
+  dplyr::select(FOD_ID, DISCOVERY_DATE, NWCG_GENERAL_CAUSE, FIRE_SIZE, FIRE_SIZE_CLASS, CONT_DATE, DURATION)
+
+# join reason dataframe with wildfire area together
+wildfireReason <- wildfireReason %>%
+  st_join(hexGridSf) %>%
+  drop_na(ID) %>%
+  uncount(DURATION,.remove = FALSE, .id = 'INCREMENT') %>%
+  mutate(DATE = DISCOVERY_DATE %m+% months(INCREMENT - 1)) %>%
+  dplyr::select(DATE, ID, NWCG_GENERAL_CAUSE)
+
 # save wildfire dataframe into RDS object
 saveRDS(wildfireDf, 'data/wildfire/wildfire.rds')
+saveRDS(wildfireReason, 'data/wildfire/wildfireReason.rds')
 
 # DE-9IM -----------------------------------------------------------------------
 ## Hex Grid relation -----------------------------------------------------------

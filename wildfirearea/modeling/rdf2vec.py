@@ -23,12 +23,14 @@ Input:
     - maxWalks: maximum number of walks per defined entity
     - train: Boolean value if RDF2Vec should be performed
     - clustering: Boolean value if vector representation should be clustered with KMeans
+    - chunk: 
+    - save:
     - 
 
 
 
 Output:
-    - Transformer models in format of pickle file
+    - Transformer model embedding in format of pickle file
     - Vector representation of grid cell IDs in format of pickle file
 
 '''
