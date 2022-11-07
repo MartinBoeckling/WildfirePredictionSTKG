@@ -27,10 +27,12 @@ import pickle
 from pathlib import Path
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, roc_curve
 from skopt import BayesSearchCV
+from skopt.plots import plot_convergence
 from skopt.space.space import Real, Integer
 from imblearn.over_sampling import RandomOverSampler
 import xgboost as xgb
@@ -41,7 +43,7 @@ class modelPrediction:
         # transform datafile path into pathlib object
         self.dataPath = Path(dataPath)
         # create directory for use case
-        self.loggingPath = Path('wildfirearea/modelling').joinpath(self.dataPath.stem)
+        self.loggingPath = Path('wildfirearea/modeling').joinpath(self.dataPath.stem)
         self.loggingPath.mkdir(exist_ok=True, parents=True)
         # check if input is eligeble for data processing
         # check if dataPath input is a file
@@ -58,21 +60,33 @@ class modelPrediction:
         # if validation set to false empty dict is used
         else:
             parameterSettings = {}
-        # perform training based on train and test dataset and parametersettings
-        self.modelTraining(trainData, testData, parameterSettings)
-        self.modelExplanation()
+            # perform training based on train and test dataset and parametersettings
+            self.modelTraining(trainData, testData, parameterSettings)
+        #self.modelExplanation()
 
     
     def dataPreprocess(self):
         print('Data Preprocessing')
         # read file into dataframe
         data = pd.read_csv(self.dataPath)
+        print(data.columns)
         # transform DATE column into datetime
         data['DATE'] = pd.to_datetime(data['DATE'])
         # check if column osmCluster is present in dataframe
         if 'osmCluster' in data.columns:
             # change datatype of column osmCluster to categorical data type
             data = data.astype({'osmCluster':'object'})
+        print(pd.unique(data['WILDFIRE']))
+        '''labelEncoder = LabelEncoder()
+        labelEncoder.fit(data['WILDFIRE'])
+        print(f'Classes: {labelEncoder.classes_} \nEncoded Values: {labelEncoder.transform(labelEncoder.classes_)}')
+        data['WILDFIRE'] = labelEncoder.transform(data['WILDFIRE'])
+        # extract landcover categories
+        if 'LANDCOVER' in data.columns:
+            landcoverCategories = pd.unique(data['LANDCOVER'])
+        else:
+            landcoverCategories = []
+        print(landcoverCategories)'''
         # split data into train and testset based on specified date
         # create train dataframe which is under specified date
         trainData = data[data['DATE'] < self.testDate]
@@ -81,15 +95,16 @@ class modelPrediction:
         # extract wildfire column as target
         trainDataY = trainData.pop('WILDFIRE')
         # Drop Date and ID column
-        trainDataX = trainData.drop(columns=['DATE', 'ID'], axis=1)
+        trainDataX = trainData.drop(columns=['DATE', 'ID', 'geometry'], axis=1, errors='ignore')
         # specify random over sampling
         roseSampling = RandomOverSampler(random_state=15)
         # resample data with specified strategy
         trainDataX, trainDataY = roseSampling.fit_resample(trainDataX, trainDataY)
+        print('Finished ROSE sampling')
         # extract Wildfire column as testdata target
         testDataY = testData.pop('WILDFIRE')
         # Drop Date and ID column
-        testDataX = testData.drop(columns=['DATE', 'ID'], axis=1)
+        testDataX = testData.drop(columns=['DATE', 'ID', 'geometry'], axis=1, errors='ignore')
         self.testData = testDataX
         # create preprocessing pipeline for numerical and categorical data
         # create numerical transformer pipeline
@@ -109,7 +124,7 @@ class modelPrediction:
             transformers=[
                 ('num', numericTransformer, numericFeatures),
                 ('cat', categoricTransformer, categoricFeatures)],
-            n_jobs=-1, verbose=True)
+            n_jobs=-1, verbose=True, remainder='passthrough')
         # apply column transformer to train and test data
         trainDataX = preprocessor.fit_transform(trainDataX)
         testDataX = preprocessor.fit_transform(testDataX)
@@ -124,7 +139,8 @@ class modelPrediction:
         dataTrainY = dataTrain[1]
         dataTestX = dataTest[0]
         dataTestY = dataTest[1]
-        
+        # specify time series cross validation
+        timeSeriesCV = TimeSeriesSplit(n_splits=5)
         # specify extra gradient boosting classifier
         xgbCl = xgb.XGBClassifier(objective="binary:logistic", seed=15, n_jobs=-2)
         '''
@@ -143,7 +159,7 @@ class modelPrediction:
                             search_spaces={
                                 'learning_rate': Real(0.01, 1.0, prior='log-uniform'),
                                 'min_child_weight': Real(0, 10, prior='uniform'),
-                                'max_depth': Integer(0, 50, prior='uniform'),
+                                'max_depth': Integer(1, 50, prior='uniform'),
                                 'max_delta_step': Real(0, 20, prior='uniform'),
                                 'subsample': Real(0.01, 1.0, prior='uniform'),
                                 'colsample_bytree': Real(0.01, 1.0, prior='uniform'),
@@ -151,16 +167,18 @@ class modelPrediction:
                                 'reg_lambda': Real(1e-9, 1000, prior='log-uniform'),
                                 'reg_alpha': Real(1e-9, 1.0, 'log-uniform'),
                                 'gamma': Real(1e-9, 0.5, prior='log-uniform'),
-                                'n_estimators': Integer(50, 200, prior='uniform'),
-                                'scale_pos_weight': Real(1e-6, 500, prior='log-uniform')},
-                            cv=5,
+                                'n_estimators': Integer(50, 400, prior='uniform'),
+                                'scale_pos_weight': Real(1e-6, 1000, prior='log-uniform')},
+                            cv=timeSeriesCV,
                             scoring='f1_macro',
                             verbose=3,
                             n_jobs=1,
                             error_score='raise',
                             random_state=14,
-                            n_iter=25,
-                            refit=False)
+                            n_iter=30,
+                            refit=True,
+                            n_points=1,
+                            return_train_score=True)
         # fit specified cross validation setup to 
         cv.fit(dataTrainX, dataTrainY)
         # predict class
@@ -181,6 +199,8 @@ class modelPrediction:
         print(f'Model score:\n{classification_report(dataTestY, predClass)}')
         # print confusion matrix of classification
         print(f'Confusion matrix:\n{confusion_matrix(dataTestY, predClass)}')
+        plot_convergence(cv)
+        return {}
 
     def modelTraining(self, trainData, testData, parameterSettings):
         print('Model training')
@@ -190,7 +210,7 @@ class modelPrediction:
         dataTestX = testData[0]
         dataTestY = testData[1]
         # specify extra gradient boosting classifier
-        xgbCl = xgb.XGBClassifier(**parameterSettings, objective="binary:logistic", seed=15, n_jobs=-6)
+        xgbCl = xgb.XGBClassifier(**parameterSettings, objective="binary:logistic", seed=15, n_jobs=-4)
         # fit specified model to training data
         xgbCl.fit(dataTrainX, dataTrainY)
         # store model
@@ -201,11 +221,13 @@ class modelPrediction:
         # calculate probability for AUC calculation
         predProb = xgbCl.predict_proba(dataTestX)[:,1]
         # print feature importance
+        predProbDf = pd.DataFrame({'probability': predProb, 'actualClass': dataTestY})
+        predProbDf.to_csv(f'{self.loggingPath}/probabilityClass.csv', index=False)
         print(f'Feature imporance:{xgbCl.feature_importances_}')
         # print confusion matrix of classification
         print(f'Confusion matrix:\n{confusion_matrix(dataTestY, predClass)}')
         # print AUC metric
-        aucScore = roc_auc_score(dataTestY, predProb)
+        aucScore = roc_auc_score(dataTestY, predProb, multi_class='ovo')
         print(f'AUC Score:\n{aucScore}')
         # print classification report
         print(f'Model score:\n{classification_report(dataTestY, predClass)}')
