@@ -34,6 +34,7 @@ from sklearn.metrics import classification_report, confusion_matrix, roc_auc_sco
 from skopt import BayesSearchCV
 from skopt.plots import plot_convergence
 from skopt.space.space import Real, Integer
+from skopt.callbacks import CheckpointSaver
 from imblearn.over_sampling import RandomOverSampler
 import xgboost as xgb
 import shap
@@ -154,6 +155,7 @@ class modelPrediction:
             - n_iter: Iteration for optimization
             - refit: Set to false as only parameter settings need to be extracted
         '''
+        checkpointSaver = CheckpointSaver("./checkpoint.pkl", compress=9)
         cv = BayesSearchCV(estimator=xgbCl,
                             # specifying search space for 
                             search_spaces={
@@ -180,7 +182,7 @@ class modelPrediction:
                             n_points=1,
                             return_train_score=True)
         # fit specified cross validation setup to 
-        cv.fit(dataTrainX, dataTrainY)
+        cv.fit(dataTrainX, dataTrainY, callback=[checkpointSaver])
         # predict class
         predClass = cv.predict(dataTestX)
         # print best parameter combination
@@ -199,7 +201,8 @@ class modelPrediction:
         print(f'Model score:\n{classification_report(dataTestY, predClass)}')
         # print confusion matrix of classification
         print(f'Confusion matrix:\n{confusion_matrix(dataTestY, predClass)}')
-        plot_convergence(cv)
+        _ = plot_convergence(cv)
+        plt.show()
         return {}
 
     def modelTraining(self, trainData, testData, parameterSettings):
