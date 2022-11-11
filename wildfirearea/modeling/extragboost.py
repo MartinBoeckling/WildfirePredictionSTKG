@@ -173,7 +173,7 @@ class modelPrediction:
                                 'scale_pos_weight': Real(1e-6, 1000, prior='log-uniform')},
                             cv=timeSeriesCV,
                             scoring='f1_macro',
-                            verbose=3,
+                            verbose=1,
                             n_jobs=1,
                             error_score='raise',
                             random_state=14,
