@@ -21,31 +21,35 @@ Output:
 '''
 # import packages
 import argparse
-import matplotlib.pyplot as plt
-import pandas as pd
 import pickle
 from pathlib import Path
+import matplotlib.pyplot as plt
+import pandas as pd
+import shap
+import xgboost as xgb
+from bayes_opt import BayesianOptimization
+from bayes_opt.logger import JSONLogger
+from bayes_opt.event import Events
+from bayes_opt.util import load_logs
+from imblearn.over_sampling import RandomOverSampler
+import json
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
-from sklearn.model_selection import TimeSeriesSplit
+from sklearn.metrics import (classification_report, confusion_matrix,
+                             roc_auc_score, roc_curve)
+from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, LabelEncoder
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, roc_curve
-from skopt import BayesSearchCV
-from skopt.plots import plot_convergence
-from skopt.space.space import Real, Integer
-from skopt.callbacks import CheckpointSaver
-from imblearn.over_sampling import RandomOverSampler
-import xgboost as xgb
-import shap
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+
 
 class modelPrediction:
-    def __init__(self, validation, dataPath, testDate):
+    def __init__(self, validation, dataPath, testDate, resume):
         # transform datafile path into pathlib object
         self.dataPath = Path(dataPath)
         # create directory for use case
         self.loggingPath = Path('wildfirearea/modeling').joinpath(self.dataPath.stem)
         self.loggingPath.mkdir(exist_ok=True, parents=True)
+        self.resume = resume
         # check if input is eligeble for data processing
         # check if dataPath input is a file
         assert self.dataPath.is_file(), f'{self.dataPath} does not link to a file'
@@ -60,9 +64,9 @@ class modelPrediction:
             parameterSettings = self.parameterTuning(trainData, testData)
         # if validation set to false empty dict is used
         else:
-            parameterSettings = {}
-            # perform training based on train and test dataset and parametersettings
-            self.modelTraining(trainData, testData, parameterSettings)
+            parameterSettings = {'colsample_bylevel': 0.5188039103349633, 'colsample_bytree': 0.7754334015585038, 'gamma': 0.43521384299197863, 'learning_rate': 0.01796647904451973, 'max_delta_step': 6.1947185101040825, 'max_depth': int(47.92258322892866), 'min_child_weight': 5.131167122678871, 'n_estimators': int(161.3995487052345), 'reg_alpha': 0.5391999378864482, 'reg_lambda': 221.25494242853864, 'scale_pos_weight': 1612.9627160420587, 'subsample': 0.3488320793585375}
+        # perform training based on train and test dataset and parametersettings
+        self.modelTraining(trainData, testData, parameterSettings)
         #self.modelExplanation()
 
     
@@ -95,13 +99,20 @@ class modelPrediction:
         testData = data[data['DATE'] >= self.testDate]
         # extract wildfire column as target
         trainDataY = trainData.pop('WILDFIRE')
-        # Drop Date and ID column
-        trainDataX = trainData.drop(columns=['DATE', 'ID', 'geometry'], axis=1, errors='ignore')
-        # specify random over sampling
+        # Drop geometry and ID column
+        trainDataX = trainData.drop(columns=['ID', 'geometry'], axis=1, errors='ignore')
+        trainDataX['DATE'] = trainDataX['DATE'].astype(object)
         roseSampling = RandomOverSampler(random_state=15)
         # resample data with specified strategy
         trainDataX, trainDataY = roseSampling.fit_resample(trainDataX, trainDataY)
         print('Finished ROSE sampling')
+        trainDataY = pd.DataFrame(trainDataY, columns=['WILDFIRE'])
+        trainData = pd.concat([trainDataX, trainDataY], axis=1)
+        trainData['DATE'] = pd.to_datetime(trainData['DATE'])
+        trainData = trainData.sort_values(by='DATE')
+        # Drop Date and ID column
+        trainDataY = trainData.pop('WILDFIRE')
+        trainDataX = trainData.drop(columns=['DATE'], axis=1, errors='ignore')
         # extract Wildfire column as testdata target
         testDataY = testData.pop('WILDFIRE')
         # Drop Date and ID column
@@ -133,17 +144,36 @@ class modelPrediction:
         return (trainDataX, trainDataY), (testDataX, testDataY)
 
 
+    def parameterRoutineCV(self, learningRate, minChildWeight, maxDepth, maxDeltaStep,
+                        subsample, colsampleBytree, colsampleBylevel, regLambda, regAlpha,
+                        gamma, numberEstimators, scalePosWeight):
+        
+        xgbCl = xgb.XGBClassifier(objective="binary:logistic", seed=15, n_jobs=-1,
+                                 learning_rate=learningRate,
+                                 min_child_weight=minChildWeight,
+                                 max_depth = int(maxDepth),
+                                 max_delta_step = maxDeltaStep,
+                                 subsample=subsample,
+                                 colsample_bytree = colsampleBytree,
+                                 colsample_bylevel= colsampleBylevel,
+                                 reg_lambda = regLambda,
+                                 reg_alpha = regAlpha,
+                                 gamma = gamma,
+                                 n_estimators = int(numberEstimators),
+                                 scale_pos_weight = scalePosWeight)
+        # create time series cross validation object
+        timeSeriesCV = TimeSeriesSplit(n_splits=5)
+        # calculate cross validation score
+        cv = cross_val_score(estimator=xgbCl, X=self.dataTrainX, y=self.dataTrainY, scoring='f1_macro', cv=timeSeriesCV)
+        return cv.mean()        
+
     def parameterTuning(self, dataTrain, dataTest):
         print('Parameter tuning')
         # extract dataframes from train and test data tuples
-        dataTrainX = dataTrain[0]
-        dataTrainY = dataTrain[1]
+        self.dataTrainX = dataTrain[0]
+        self.dataTrainY = dataTrain[1]
         dataTestX = dataTest[0]
         dataTestY = dataTest[1]
-        # specify time series cross validation
-        timeSeriesCV = TimeSeriesSplit(n_splits=5)
-        # specify extra gradient boosting classifier
-        xgbCl = xgb.XGBClassifier(objective="binary:logistic", seed=15, n_jobs=-2)
         '''
         specify bayesian search cross validation with the following specifications
             - estimator: specified extra gradient boosting classifier
@@ -155,36 +185,45 @@ class modelPrediction:
             - n_iter: Iteration for optimization
             - refit: Set to false as only parameter settings need to be extracted
         '''
-        checkpointSaver = CheckpointSaver("./checkpoint.pkl", compress=9)
-        cv = BayesSearchCV(estimator=xgbCl,
-                            # specifying search space for 
-                            search_spaces={
-                                'learning_rate': Real(0.01, 1.0, prior='log-uniform'),
-                                'min_child_weight': Real(0, 10, prior='uniform'),
-                                'max_depth': Integer(1, 50, prior='uniform'),
-                                'max_delta_step': Real(0, 20, prior='uniform'),
-                                'subsample': Real(0.01, 1.0, prior='uniform'),
-                                'colsample_bytree': Real(0.01, 1.0, prior='uniform'),
-                                'colsample_bylevel': Real(0.01, 1.0, prior='uniform'),
-                                'reg_lambda': Real(1e-9, 1000, prior='log-uniform'),
-                                'reg_alpha': Real(1e-9, 1.0, 'log-uniform'),
-                                'gamma': Real(1e-9, 0.5, prior='log-uniform'),
-                                'n_estimators': Integer(50, 400, prior='uniform'),
-                                'scale_pos_weight': Real(1e-6, 1000, prior='log-uniform')},
-                            cv=timeSeriesCV,
-                            scoring='f1_macro',
-                            verbose=1,
-                            n_jobs=1,
-                            error_score='raise',
-                            random_state=14,
-                            n_iter=30,
-                            refit=True,
-                            n_points=1,
-                            return_train_score=True)
-        # fit specified cross validation setup to 
-        cv.fit(dataTrainX, dataTrainY, callback=[checkpointSaver])
+        optimizer = BayesianOptimization(f=self.parameterRoutineCV,
+                                        pbounds={
+                                            'learningRate': (0.01, 1.0),
+                                            'minChildWeight': (0, 10),
+                                            'maxDepth': (1, 50),
+                                            'maxDeltaStep': (0, 20),
+                                            'subsample': (0.01, 1.0),
+                                            'colsampleBytree': (0.01, 1.0),
+                                            'colsampleBylevel': (0.01, 1.0),
+                                            'regLambda': (1e-9, 1000),
+                                            'regAlpha': (1e-9, 1.0),
+                                            'gamma': (1e-9, 0.5),
+                                            'numberEstimators': (50, 400),
+                                            'scalePosWeight': (1e-6, 2000)
+                                        },
+                                        verbose=2,
+                                        random_state=14)
+        if self.resume:
+            load_logs(optimizer, logs=[f'{self.loggingPath}/logs.json'])
+            with open(f'{self.loggingPath}/logs.json') as loggingFile:
+                loggingFiles = [json.loads(jsonObj) for jsonObj in loggingFile]
+            iterationSteps = 30 - len(loggingFiles) - 5
+            initPoints = 0
+        else:
+            iterationSteps = 30
+            initPoints = 5
+        logger = JSONLogger(path=f"{self.loggingPath}/logs.json")
+        optimizer.subscribe(Events.OPTIMIZATION_STEP, logger)
+        optimizer.maximize(n_iter=iterationSteps, init_points=initPoints)
+        print(f'Best parameter & score: {optimizer.max}')
+        dataIterationPerformance = pd.json_normalize(optimizer.res)
+        dataIterationPerformance.to_csv(f'{self.loggingPath}/runPerformance.csv', index=False)
+        parameterNames = ['colsample_bylevel', 'colsample_bytree', 'gamma', 'learning_rate', 'max_delta_step', 'max_depth', 'min_child_weight', 'n_estimators', 'reg_alpha', 'reg_lambda', 'scale_pos_weight', 'subsample']
+        parameterCombination = dict(zip(parameterNames, optimizer.max['params']))
+        parameterCombination['max_depth'] = int(parameterCombination['max_depth'])
+        parameterCombination['n_estimators'] = int(parameterCombination['n_estiamtors'])
+        return parameterCombination
         # predict class
-        predClass = cv.predict(dataTestX)
+        """predClass = cv.predict(dataTestX)
         # print best parameter combination
         print(f'Best parameters: {cv.best_params_}')
         # store best parameter combination in pickle format
@@ -203,7 +242,7 @@ class modelPrediction:
         print(f'Confusion matrix:\n{confusion_matrix(dataTestY, predClass)}')
         _ = plot_convergence(cv)
         plt.show()
-        return {}
+        return {}"""
 
     def modelTraining(self, trainData, testData, parameterSettings):
         print('Model training')
@@ -213,7 +252,7 @@ class modelPrediction:
         dataTestX = testData[0]
         dataTestY = testData[1]
         # specify extra gradient boosting classifier
-        xgbCl = xgb.XGBClassifier(**parameterSettings, objective="binary:logistic", seed=15, n_jobs=-4)
+        xgbCl = xgb.XGBClassifier(**parameterSettings, objective="binary:logistic", seed=15, n_jobs=-1)
         # fit specified model to training data
         xgbCl.fit(dataTrainX, dataTrainY)
         # store model
@@ -268,6 +307,8 @@ if __name__ == '__main__':
     # add validation argument parser
     parser.add_argument('-v', '--validation', default=False, action='store_true',
     help="use parameter if grid parameter search should be performed")
+    parser.add_argument('-r', '--resume', default=False, action='store_true',
+    help="use parameter if grid parameter search should be resumed")
     # add path argument parser
     parser.add_argument('-p', '--path', type=str, required=True,
     help='string value to data path')
@@ -277,4 +318,4 @@ if __name__ == '__main__':
     # store parser arguments in args variable
     args = parser.parse_args()
     # Pass arguments to class function to perform xgboosting
-    model = modelPrediction(validation=args.validation, dataPath=args.path, testDate=args.date)
+    model = modelPrediction(validation=args.validation, dataPath=args.path, testDate=args.date, resume=args.resume)
