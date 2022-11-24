@@ -37,9 +37,9 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import (classification_report, confusion_matrix,
                              roc_auc_score, roc_curve)
-from sklearn.model_selection import TimeSeriesSplit, cross_val_score
+from sklearn.model_selection import TimeSeriesSplit, cross_val_score, cross_val_predict
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder
 
 
 class modelPrediction:
@@ -64,7 +64,7 @@ class modelPrediction:
             parameterSettings = self.parameterTuning(trainData, testData)
         # if validation set to false empty dict is used
         else:
-            parameterSettings = {'colsample_bylevel': 0.5188039103349633, 'colsample_bytree': 0.7754334015585038, 'gamma': 0.43521384299197863, 'learning_rate': 0.01796647904451973, 'max_delta_step': 6.1947185101040825, 'max_depth': int(47.92258322892866), 'min_child_weight': 5.131167122678871, 'n_estimators': int(161.3995487052345), 'reg_alpha': 0.5391999378864482, 'reg_lambda': 221.25494242853864, 'scale_pos_weight': 1612.9627160420587, 'subsample': 0.3488320793585375}
+            parameterSettings = {}
         # perform training based on train and test dataset and parametersettings
         self.modelTraining(trainData, testData, parameterSettings)
         #self.modelExplanation()
@@ -82,16 +82,6 @@ class modelPrediction:
             # change datatype of column osmCluster to categorical data type
             data = data.astype({'osmCluster':'object'})
         print(pd.unique(data['WILDFIRE']))
-        '''labelEncoder = LabelEncoder()
-        labelEncoder.fit(data['WILDFIRE'])
-        print(f'Classes: {labelEncoder.classes_} \nEncoded Values: {labelEncoder.transform(labelEncoder.classes_)}')
-        data['WILDFIRE'] = labelEncoder.transform(data['WILDFIRE'])
-        # extract landcover categories
-        if 'LANDCOVER' in data.columns:
-            landcoverCategories = pd.unique(data['LANDCOVER'])
-        else:
-            landcoverCategories = []
-        print(landcoverCategories)'''
         # split data into train and testset based on specified date
         # create train dataframe which is under specified date
         trainData = data[data['DATE'] < self.testDate]
@@ -164,7 +154,7 @@ class modelPrediction:
         # create time series cross validation object
         timeSeriesCV = TimeSeriesSplit(n_splits=5)
         # calculate cross validation score
-        cv = cross_val_score(estimator=xgbCl, X=self.dataTrainX, y=self.dataTrainY, scoring='f1_macro', cv=timeSeriesCV)
+        cv = cross_val_score(estimator=xgbCl, X=self.dataTrainX, y=self.dataTrainY, scoring='f1', cv=timeSeriesCV)
         return cv.mean()        
 
     def parameterTuning(self, dataTrain, dataTest):
@@ -222,27 +212,6 @@ class modelPrediction:
         parameterCombination['max_depth'] = int(parameterCombination['max_depth'])
         parameterCombination['n_estimators'] = int(parameterCombination['n_estiamtors'])
         return parameterCombination
-        # predict class
-        """predClass = cv.predict(dataTestX)
-        # print best parameter combination
-        print(f'Best parameters: {cv.best_params_}')
-        # store best parameter combination in pickle format
-        with open(f'{self.loggingPath}/xgboostBestParams.pkl', 'wb') as f:
-            pickle.dump(cv.best_params_, f)
-        # print detailed results of cross validation
-        print(f'Overall results: {cv.cv_results_}')
-        # store results of cross validation
-        with open(f'{self.loggingPath}/xgboostResults.pkl', 'wb') as f:
-            pickle.dump(cv.cv_results_, f)
-        # print sum of predicted classes to see number of predicted wildfires
-        print(f'Sum of prediction:{sum(predClass)}' )
-        # print classification report
-        print(f'Model score:\n{classification_report(dataTestY, predClass)}')
-        # print confusion matrix of classification
-        print(f'Confusion matrix:\n{confusion_matrix(dataTestY, predClass)}')
-        _ = plot_convergence(cv)
-        plt.show()
-        return {}"""
 
     def modelTraining(self, trainData, testData, parameterSettings):
         print('Model training')
@@ -251,8 +220,10 @@ class modelPrediction:
         dataTrainY = trainData[1]
         dataTestX = testData[0]
         dataTestY = testData[1]
+        timeSeriesCV = TimeSeriesSplit(n_splits=5)
         # specify extra gradient boosting classifier
         xgbCl = xgb.XGBClassifier(**parameterSettings, objective="binary:logistic", seed=15, n_jobs=-1)
+        predClass =  xgbCl.fit(X= dataTrainX, y=dataTrainY)
         # fit specified model to training data
         xgbCl.fit(dataTrainX, dataTrainY)
         # store model
