@@ -24,6 +24,7 @@ import argparse
 import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import shap
 import xgboost as xgb
@@ -36,10 +37,11 @@ import json
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import (classification_report, confusion_matrix,
-                             roc_auc_score, roc_curve)
+                             roc_auc_score, roc_curve, f1_score)
 from sklearn.model_selection import TimeSeriesSplit, cross_val_score, cross_val_predict
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
+
 
 
 class modelPrediction:
@@ -50,6 +52,7 @@ class modelPrediction:
         self.loggingPath = Path('wildfirearea/modeling').joinpath(self.dataPath.stem)
         self.loggingPath.mkdir(exist_ok=True, parents=True)
         self.resume = resume
+        self.validation = validation
         # check if input is eligeble for data processing
         # check if dataPath input is a file
         assert self.dataPath.is_file(), f'{self.dataPath} does not link to a file'
@@ -61,7 +64,7 @@ class modelPrediction:
         trainData, testData = self.dataPreprocess()
         # perform validation if set to true
         if validation:
-            parameterSettings = self.parameterTuning(trainData, testData)
+            parameterSettings = self.parameterTuning(trainData)
         # if validation set to false empty dict is used
         else:
             parameterSettings = {}
@@ -69,6 +72,27 @@ class modelPrediction:
         self.modelTraining(trainData, testData, parameterSettings)
         #self.modelExplanation()
 
+    def oversampleRows(self, trainDataX, trainDataY):
+        # Drop geometry and ID column
+        trainDataX['DATE'] = trainDataX['DATE'].astype(object)
+        # 
+        trainDataX.columns = trainDataX.columns.astype(str)
+        roseSampling = RandomOverSampler(random_state=15)
+        # resample data with specified strategy
+        trainDataX, trainDataY = roseSampling.fit_resample(trainDataX, trainDataY)
+        # reorder dataframes to support timeseriessplit
+        trainDataY = pd.DataFrame(trainDataY, columns=['WILDFIRE'])
+        # unify datasets to one dataframe
+        trainData = pd.concat([trainDataX, trainDataY], axis=1)
+        # change datatype to datetime to support sorting of column
+        trainData['DATE'] = pd.to_datetime(trainData['DATE'])
+        # sort DATE column to enable time series split feature
+        trainData = trainData.sort_values(by='DATE')
+        # split class from unified dataframe
+        trainDataY = trainData.pop('WILDFIRE')
+        # Drop Date column
+        trainDataX = trainData.drop(columns=['DATE'], axis=1, errors='ignore')
+        return trainDataX, trainDataY
     
     def dataPreprocess(self):
         print('Data Preprocessing')
@@ -81,7 +105,6 @@ class modelPrediction:
         if 'osmCluster' in data.columns:
             # change datatype of column osmCluster to categorical data type
             data = data.astype({'osmCluster':'object'})
-        print(pd.unique(data['WILDFIRE']))
         # split data into train and testset based on specified date
         # create train dataframe which is under specified date
         trainData = data[data['DATE'] < self.testDate]
@@ -91,18 +114,11 @@ class modelPrediction:
         trainDataY = trainData.pop('WILDFIRE')
         # Drop geometry and ID column
         trainDataX = trainData.drop(columns=['ID', 'geometry'], axis=1, errors='ignore')
-        trainDataX['DATE'] = trainDataX['DATE'].astype(object)
-        roseSampling = RandomOverSampler(random_state=15)
-        # resample data with specified strategy
-        trainDataX, trainDataY = roseSampling.fit_resample(trainDataX, trainDataY)
-        print('Finished ROSE sampling')
-        trainDataY = pd.DataFrame(trainDataY, columns=['WILDFIRE'])
-        trainData = pd.concat([trainDataX, trainDataY], axis=1)
-        trainData['DATE'] = pd.to_datetime(trainData['DATE'])
-        trainData = trainData.sort_values(by='DATE')
-        # Drop Date and ID column
-        trainDataY = trainData.pop('WILDFIRE')
-        trainDataX = trainData.drop(columns=['DATE'], axis=1, errors='ignore')
+        if self.validation:
+            print('Oversampling is performed later')
+            pass
+        else:
+            trainDataX, trainDataY = self.oversampleRows(trainData)
         # extract Wildfire column as testdata target
         testDataY = testData.pop('WILDFIRE')
         # Drop Date and ID column
@@ -121,6 +137,8 @@ class modelPrediction:
         numericFeatures = trainDataX.select_dtypes(include=['int64', 'float64']).columns
         # select columns with categorical dtype
         categoricFeatures = trainDataX.select_dtypes(include=['object']).columns
+        if self.validation:
+            trainDataDate = trainDataX.pop('DATE')
         # construct column transformer object to apply pipelines to each column
         preprocessor = ColumnTransformer(
             transformers=[
@@ -130,40 +148,48 @@ class modelPrediction:
         # apply column transformer to train and test data
         trainDataX = preprocessor.fit_transform(trainDataX)
         testDataX = preprocessor.fit_transform(testDataX)
+        if self.validation:
+            trainDataDate = pd.DataFrame(trainDataDate, columns=['DATE'])
+            trainDataX = pd.DataFrame(trainDataX)
+            trainDataX = pd.concat([trainDataX, trainDataDate], axis=1)
         # return trainData and testdata X and Y dataframe in tuple format
         return (trainDataX, trainDataY), (testDataX, testDataY)
 
 
-    def parameterRoutineCV(self, learningRate, minChildWeight, maxDepth, maxDeltaStep,
-                        subsample, colsampleBytree, colsampleBylevel, regLambda, regAlpha,
-                        gamma, numberEstimators, scalePosWeight):
+    def parameterRoutineCV(self, minChildWeight, maxDepth, subsample,
+                          colsampleBytree, colsampleBylevel, gamma, numberEstimators):
         
-        xgbCl = xgb.XGBClassifier(objective="binary:logistic", seed=15, n_jobs=-1,
-                                 learning_rate=learningRate,
+        xgbCl = xgb.XGBClassifier(objective="binary:logistic", seed=15, n_jobs=-1, tree_method='hist',
                                  min_child_weight=minChildWeight,
                                  max_depth = int(maxDepth),
-                                 max_delta_step = maxDeltaStep,
                                  subsample=subsample,
                                  colsample_bytree = colsampleBytree,
                                  colsample_bylevel= colsampleBylevel,
-                                 reg_lambda = regLambda,
-                                 reg_alpha = regAlpha,
                                  gamma = gamma,
-                                 n_estimators = int(numberEstimators),
-                                 scale_pos_weight = scalePosWeight)
+                                 n_estimators = int(numberEstimators))
         # create time series cross validation object
         timeSeriesCV = TimeSeriesSplit(n_splits=5)
         # calculate cross validation score
-        cv = cross_val_score(estimator=xgbCl, X=self.dataTrainX, y=self.dataTrainY, scoring='f1', cv=timeSeriesCV)
-        return cv.mean()        
+        # iterate over times series cross validation
+        cvScores = []
+        for trainIndex, testIndex in timeSeriesCV.split(self.dataTrainX):
+            # select dataframe rows based on extracted index
+            trainX, trainY = self.dataTrainX.iloc[trainIndex], self.dataTrainY.iloc[trainIndex]
+            testX, testY = self.dataTrainX.iloc[testIndex], self.dataTrainY.iloc[testIndex]
+            trainX, trainY = self.oversampleRows(trainX, trainY)
+            testX = testX.drop('DATE', axis=1, errors='ingore')
+            xgbCl.fit(trainX, trainY)
+            predClass = xgbCl.predict(testX)
+            f1Score = f1_score(testY, predClass, average='binary')
+            cvScores.append(f1Score)
+        cvScoresNumpy = np.array(cvScores)
+        return cvScoresNumpy.mean()
 
-    def parameterTuning(self, dataTrain, dataTest):
+    def parameterTuning(self, dataTrain):
         print('Parameter tuning')
         # extract dataframes from train and test data tuples
         self.dataTrainX = dataTrain[0]
         self.dataTrainY = dataTrain[1]
-        dataTestX = dataTest[0]
-        dataTestY = dataTest[1]
         '''
         specify bayesian search cross validation with the following specifications
             - estimator: specified extra gradient boosting classifier
@@ -177,18 +203,13 @@ class modelPrediction:
         '''
         optimizer = BayesianOptimization(f=self.parameterRoutineCV,
                                         pbounds={
-                                            'learningRate': (0.01, 1.0),
-                                            'minChildWeight': (0, 10),
-                                            'maxDepth': (1, 50),
-                                            'maxDeltaStep': (0, 20),
+                                            'minChildWeight': (0, 100),
+                                            'maxDepth': (0, 50),
                                             'subsample': (0.01, 1.0),
                                             'colsampleBytree': (0.01, 1.0),
                                             'colsampleBylevel': (0.01, 1.0),
-                                            'regLambda': (1e-9, 1000),
-                                            'regAlpha': (1e-9, 1.0),
-                                            'gamma': (1e-9, 0.5),
-                                            'numberEstimators': (50, 400),
-                                            'scalePosWeight': (1e-6, 2000)
+                                            'gamma': (0, 50),
+                                            'numberEstimators': (50, 1000)
                                         },
                                         verbose=2,
                                         random_state=14)
@@ -207,10 +228,10 @@ class modelPrediction:
         print(f'Best parameter & score: {optimizer.max}')
         dataIterationPerformance = pd.json_normalize(optimizer.res)
         dataIterationPerformance.to_csv(f'{self.loggingPath}/runPerformance.csv', index=False)
-        parameterNames = ['colsample_bylevel', 'colsample_bytree', 'gamma', 'learning_rate', 'max_delta_step', 'max_depth', 'min_child_weight', 'n_estimators', 'reg_alpha', 'reg_lambda', 'scale_pos_weight', 'subsample']
-        parameterCombination = dict(zip(parameterNames, optimizer.max['params']))
+        parameterNames = ['colsample_bylevel', 'colsample_bytree', 'gamma', 'max_depth', 'min_child_weight', 'n_estimators', 'subsample']
+        parameterCombination = dict(zip(parameterNames, optimizer.max['params'].values()))
         parameterCombination['max_depth'] = int(parameterCombination['max_depth'])
-        parameterCombination['n_estimators'] = int(parameterCombination['n_estiamtors'])
+        parameterCombination['n_estimators'] = int(parameterCombination['n_estimators'])
         return parameterCombination
 
     def modelTraining(self, trainData, testData, parameterSettings):
@@ -222,7 +243,7 @@ class modelPrediction:
         dataTestY = testData[1]
         timeSeriesCV = TimeSeriesSplit(n_splits=5)
         # specify extra gradient boosting classifier
-        xgbCl = xgb.XGBClassifier(**parameterSettings, objective="binary:logistic", seed=15, n_jobs=-1)
+        xgbCl = xgb.XGBClassifier(**parameterSettings, objective="binary:logistic", seed=15, n_jobs=-1, tree_method='hist')
         predClass =  xgbCl.fit(X= dataTrainX, y=dataTrainY)
         # fit specified model to training data
         xgbCl.fit(dataTrainX, dataTrainY)
@@ -273,6 +294,8 @@ class modelPrediction:
 
 
 if __name__ == '__main__':
+    
+    pd.options.mode.chained_assignment = None  # default='warn'
     # initialize the command line argparser
     parser = argparse.ArgumentParser(description='XGBoost argument parameters')
     # add validation argument parser
