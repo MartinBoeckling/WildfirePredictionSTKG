@@ -65,6 +65,10 @@ class modelPrediction:
         # perform validation if set to true
         if validation:
             parameterSettings = self.parameterTuning(trainData)
+            # oversample complete training set for training
+            trainDataX, trainDataY = self.oversampleRows(trainData[0], trainData[1])
+            # change two datasets into one unified data structure
+            trainData = (trainDataX, trainDataY)
         # if validation set to false empty dict is used
         else:
             parameterSettings = {}
