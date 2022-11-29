@@ -118,7 +118,7 @@ class modelPrediction:
             print('Oversampling is performed later')
             pass
         else:
-            trainDataX, trainDataY = self.oversampleRows(trainData)
+            trainDataX, trainDataY = self.oversampleRows(trainDataX, trainDataY)
         # extract Wildfire column as testdata target
         testDataY = testData.pop('WILDFIRE')
         # Drop Date and ID column
@@ -228,7 +228,7 @@ class modelPrediction:
         print(f'Best parameter & score: {optimizer.max}')
         dataIterationPerformance = pd.json_normalize(optimizer.res)
         dataIterationPerformance.to_csv(f'{self.loggingPath}/runPerformance.csv', index=False)
-        parameterNames = ['colsample_bylevel', 'colsample_bytree', 'gamma', 'max_depth', 'min_child_weight', 'n_estimators', 'subsample']
+        parameterNames = ['colsample_bylevel', 'colsample_bytree', 'gamma', 'max_depth', 'min_child_weight', 'n_estimators', 'scale_pos_weight', 'subsample']
         parameterCombination = dict(zip(parameterNames, optimizer.max['params'].values()))
         parameterCombination['max_depth'] = int(parameterCombination['max_depth'])
         parameterCombination['n_estimators'] = int(parameterCombination['n_estimators'])
