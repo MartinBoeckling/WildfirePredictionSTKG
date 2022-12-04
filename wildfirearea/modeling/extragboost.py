@@ -221,11 +221,11 @@ class modelPrediction:
             load_logs(optimizer, logs=[f'{self.loggingPath}/logs.json'])
             with open(f'{self.loggingPath}/logs.json') as loggingFile:
                 loggingFiles = [json.loads(jsonObj) for jsonObj in loggingFile]
-            iterationSteps = 30 - len(loggingFiles) - 5
+            iterationSteps = 50 - len(loggingFiles) + 10
             initPoints = 0
         else:
-            iterationSteps = 30
-            initPoints = 5
+            iterationSteps = 50
+            initPoints = 10
         logger = JSONLogger(path=f"{self.loggingPath}/logs.json")
         optimizer.subscribe(Events.OPTIMIZATION_STEP, logger)
         optimizer.maximize(n_iter=iterationSteps, init_points=initPoints)
