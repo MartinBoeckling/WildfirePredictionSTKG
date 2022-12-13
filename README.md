@@ -1,10 +1,10 @@
-# Master thesis from Martin Böckling
+# Code base for paper 
 ## Introduction
-This repository is a code collection for all aspects regarding the master thesis of Martin Böckling. The structure of the repository is structured into the CRISP-DM phases Data Understanding, Data Preparation and Data Modelling. The thesis document is provided separately. 
+This repository is a code collection for all aspects regarding the paper Wildfire Prediction using Spatio-Temporal Knowledge Graphs. The structure of the repository is structured into the CRISP-DM processes with the phases Data Understanding, Data Preparation and Data Modelling. The paper is provided separately.
 
 The coding was run on an Ubuntu 22.04.1 system with 160GB of memory. Certain computations within scripts are memory intensive and need the amount of memory.
 ## Dependencies
-The coding related to the thesis is implemented in Python and R. For the different programming languages the dependencies are outlined in the following sections.
+The coding related to the paper is implemented in Python and R. For the different programming languages the dependencies are outlined in the following sections.
 
 ### R
 The R coding is based on the R version 4.1.2.
