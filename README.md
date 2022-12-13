@@ -32,7 +32,7 @@ The data can be found under the following OneDrive [Folder](https://1drv.ms/u/s!
 ## Data Mining Pipeline
 The Data Mining Pipeline shows the overall procedure and steps taken for this master thesis. It sketches a rough overview of the steps taken to classify wildfires. An outline can be found in the following image:
 
-![Data Mining Pipeline](img/DMPipeline.png)
+![Data Mining Pipeline](img/Approach.png)
 
 In the following each step within the Data Mining Pipeline is explained and associated to each script. 
 - Data:
