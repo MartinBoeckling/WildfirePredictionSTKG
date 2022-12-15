@@ -1,4 +1,13 @@
 # Code base for paper Wildfire Prediction using Spatio-Temporal Knowledge Graphs
+## Information for paper submission
+The provided code base allows to create a variety of different dataset constellations for the wildfire prediction. For the paper submission a selection of datasets is provided and analyzed. In the following table the connection between the dataset names in the coding and paper is displayed:
+|Code data table name|Paper table name|
+|--------------------|----------------|
+|Dataset 3|BaseKriging|
+|Dataset 15|HybridKrigingDoubleVector|
+|Dataset 16|HybridKrigingSingleVector|
+|Dataset 23|NetworkKriging|
+
 ## Introduction
 This repository is a code collection for all aspects regarding the paper Wildfire Prediction using Spatio-Temporal Knowledge Graphs. The structure of the repository is structured into the CRISP-DM processes with the phases Data Understanding, Data Preparation and Data Modelling. The paper is provided separately.
 
