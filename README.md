@@ -89,5 +89,5 @@ In the following list the structure of the repository with the associated files 
   - [RDF2Vec script](wildfirearea/modelling/rdf2vec.py) (Script which transforms Knowledge Graph into vector representation)
   - [Use case Data Preparation](wildfirearea/datapreparation/usecasecreation.R) (script which creates the use case datasets on which master thesis is conducted)
 - Modeling
-  - [XgBoost classification](wildfirearea/modelling/extragboost.py) (Script using the xgboost python package for wildfire classification)
+  - [XgBoost classification](wildfirearea/modeling/extragboost.py) (Script using the xgboost python package for wildfire classification)
 
