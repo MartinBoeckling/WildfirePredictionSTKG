@@ -6,6 +6,7 @@ The provided code base allows to create a variety of different dataset constella
 |Dataset 3|Base Case|
 |Dataset 15|Hybrid Case|
 |Dataset 23|Network Case|
+|Dataset 25|Hybrid Case KnowWhereGraph|
 
 ## Introduction
 This repository is a code collection for all aspects regarding the paper Wildfire Prediction using Spatio-Temporal Knowledge Graphs. The structure of the repository is structured into the CRISP-DM processes with the phases Data Understanding, Data Preparation and Data Modelling. The paper is provided separately.
