@@ -1,3 +1,4 @@
+[![DOI](https://zenodo.org/badge/577940219.svg)](https://zenodo.org/badge/latestdoi/577940219)
 # Code base for paper Creating and Embedding Spatio-Temporal Knowledge Graphs
 ## Information for paper submission
 The provided code base allows to create a variety of different dataset constellations for the wildfire prediction. For the paper submission a selection of datasets is provided and analyzed. In the following table the connection between the dataset names in the coding and paper is displayed:
